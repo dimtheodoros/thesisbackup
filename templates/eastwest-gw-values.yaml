@@ -1,0 +1,8 @@
+# East-west gateway values for Istio "gateway" chart (schema-safe for your version)
+
+labels:
+  istio: eastwestgateway
+  topology.istio.io/network: ${network}
+
+service:
+  type: LoadBalancer

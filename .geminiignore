@@ -1,0 +1,43 @@
+# Gemini CLI ignore file
+# Ignore files that are not relevant for Gemini CLI context
+
+# Standard ignores from .gitignore
+.git/
+.terraform/
+.terraform.lock.hcl
+*.tfstate*
+*.tfvars
+.generated/
+node_modules/
+__pycache__/
+.venv/
+bin/
+build/
+obj/
+pkg/
+vendor/
+.DS_Store
+
+# Large binary files or documentation images if they clutter context
+OnlineBoutique app/docs/img/
+*.png
+*.jpg
+*.jpeg
+*.svg
+*.gif
+*.pdf
+
+# Project specific
+OnlineBoutique app/.gitattributes
+OnlineBoutique app/.editorconfig
+OnlineBoutique app/LICENSE
+OnlineBoutique app/README.md
+OnlineBoutique app/docs/
+OnlineBoutique app/release/
+OnlineBoutique app/kubernetes-manifests/
+OnlineBoutique app/istio-manifests/
+OnlineBoutique app/kustomize/
+manifests/online-boutique-ingress-gateway.yaml
+manifests/online-boutique-ingress-virtualservice.yaml
+manifests/online-boutique-locality.yaml
+manifests/expose-services.yaml

@@ -1,0 +1,9 @@
+global:
+  meshID: ${mesh_id}
+  multiCluster:
+    clusterName: ${cluster_name}
+  network: ${network}
+
+pilot:
+  env:
+    ISTIO_META_CLUSTER_ID: ${cluster_name}

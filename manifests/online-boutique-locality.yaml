@@ -1,0 +1,241 @@
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: adservice-locality
+  namespace: online-boutique
+spec:
+  host: adservice.online-boutique.svc.cluster.local
+  trafficPolicy:
+    loadBalancer:
+      localityLbSetting:
+        enabled: true
+        failover:
+        - from: europe-west1
+          to: europe-north1
+        - from: europe-north1
+          to: europe-west1
+    outlierDetection:
+      consecutive5xxErrors: 1
+      interval: 1s
+      baseEjectionTime: 1m
+      maxEjectionPercent: 100
+---
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: cartservice-locality
+  namespace: online-boutique
+spec:
+  host: cartservice.online-boutique.svc.cluster.local
+  trafficPolicy:
+    loadBalancer:
+      localityLbSetting:
+        enabled: true
+        failover:
+        - from: europe-west1
+          to: europe-north1
+        - from: europe-north1
+          to: europe-west1
+    outlierDetection:
+      consecutive5xxErrors: 1
+      interval: 1s
+      baseEjectionTime: 1m
+      maxEjectionPercent: 100
+---
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: checkoutservice-locality
+  namespace: online-boutique
+spec:
+  host: checkoutservice.online-boutique.svc.cluster.local
+  trafficPolicy:
+    loadBalancer:
+      localityLbSetting:
+        enabled: true
+        failover:
+        - from: europe-west1
+          to: europe-north1
+        - from: europe-north1
+          to: europe-west1
+    outlierDetection:
+      consecutive5xxErrors: 1
+      interval: 1s
+      baseEjectionTime: 1m
+      maxEjectionPercent: 100
+---
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: currencyservice-locality
+  namespace: online-boutique
+spec:
+  host: currencyservice.online-boutique.svc.cluster.local
+  trafficPolicy:
+    loadBalancer:
+      localityLbSetting:
+        enabled: true
+        failover:
+        - from: europe-west1
+          to: europe-north1
+        - from: europe-north1
+          to: europe-west1
+    outlierDetection:
+      consecutive5xxErrors: 1
+      interval: 1s
+      baseEjectionTime: 1m
+      maxEjectionPercent: 100
+---
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: emailservice-locality
+  namespace: online-boutique
+spec:
+  host: emailservice.online-boutique.svc.cluster.local
+  trafficPolicy:
+    loadBalancer:
+      localityLbSetting:
+        enabled: true
+        failover:
+        - from: europe-west1
+          to: europe-north1
+        - from: europe-north1
+          to: europe-west1
+    outlierDetection:
+      consecutive5xxErrors: 1
+      interval: 1s
+      baseEjectionTime: 1m
+      maxEjectionPercent: 100
+---
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: frontend-locality
+  namespace: online-boutique
+spec:
+  host: frontend.online-boutique.svc.cluster.local
+  trafficPolicy:
+    loadBalancer:
+      localityLbSetting:
+        enabled: true
+        failover:
+        - from: europe-west1
+          to: europe-north1
+        - from: europe-north1
+          to: europe-west1
+    outlierDetection:
+      consecutive5xxErrors: 1
+      interval: 1s
+      baseEjectionTime: 1m
+      maxEjectionPercent: 100
+---
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: paymentservice-locality
+  namespace: online-boutique
+spec:
+  host: paymentservice.online-boutique.svc.cluster.local
+  trafficPolicy:
+    loadBalancer:
+      localityLbSetting:
+        enabled: true
+        failover:
+        - from: europe-west1
+          to: europe-north1
+        - from: europe-north1
+          to: europe-west1
+    outlierDetection:
+      consecutive5xxErrors: 1
+      interval: 1s
+      baseEjectionTime: 1m
+      maxEjectionPercent: 100
+---
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: productcatalogservice-locality
+  namespace: online-boutique
+spec:
+  host: productcatalogservice.online-boutique.svc.cluster.local
+  trafficPolicy:
+    loadBalancer:
+      localityLbSetting:
+        enabled: true
+        failover:
+        - from: europe-west1
+          to: europe-north1
+        - from: europe-north1
+          to: europe-west1
+    outlierDetection:
+      consecutive5xxErrors: 1
+      interval: 1s
+      baseEjectionTime: 1m
+      maxEjectionPercent: 100
+---
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: recommendationservice-locality
+  namespace: online-boutique
+spec:
+  host: recommendationservice.online-boutique.svc.cluster.local
+  trafficPolicy:
+    loadBalancer:
+      localityLbSetting:
+        enabled: true
+        failover:
+        - from: europe-west1
+          to: europe-north1
+        - from: europe-north1
+          to: europe-west1
+    outlierDetection:
+      consecutive5xxErrors: 1
+      interval: 1s
+      baseEjectionTime: 1m
+      maxEjectionPercent: 100
+---
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: shippingservice-locality
+  namespace: online-boutique
+spec:
+  host: shippingservice.online-boutique.svc.cluster.local
+  trafficPolicy:
+    loadBalancer:
+      localityLbSetting:
+        enabled: true
+        failover:
+        - from: europe-west1
+          to: europe-north1
+        - from: europe-north1
+          to: europe-west1
+    outlierDetection:
+      consecutive5xxErrors: 1
+      interval: 1s
+      baseEjectionTime: 1m
+      maxEjectionPercent: 100
+---
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: redis-cart-locality
+  namespace: online-boutique
+spec:
+  host: redis-cart.online-boutique.svc.cluster.local
+  trafficPolicy:
+    loadBalancer:
+      localityLbSetting:
+        enabled: true
+        failover:
+        - from: europe-west1
+          to: europe-north1
+        - from: europe-north1
+          to: europe-west1
+    outlierDetection:
+      consecutive5xxErrors: 1
+      interval: 1s
+      baseEjectionTime: 1m
+      maxEjectionPercent: 100

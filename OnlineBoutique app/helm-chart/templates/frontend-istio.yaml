@@ -1,0 +1,40 @@
+{{- if .Values.frontend.virtualService.create }}
+apiVersion: networking.istio.io/v1beta1
+kind: Gateway
+metadata:
+  name: {{ .Values.frontend.virtualService.gateway.name | quote }}
+  namespace: {{ .Values.frontend.virtualService.gateway.namespace | quote }}
+  labels:
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  selector:
+    istio: ingressgateway
+  servers:
+    - port:
+        number: 80
+        name: http
+        protocol: HTTP
+      hosts:
+{{ toYaml .Values.frontend.virtualService.hosts | indent 8 }}
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: frontend
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  gateways:
+    - {{ .Values.frontend.virtualService.gateway.name | quote }}
+  hosts:
+{{ toYaml .Values.frontend.virtualService.hosts | indent 4 }}
+  http:
+    - route:
+        - destination:
+            host: frontend
+            port:
+              number: {{ .Values.frontend.service.port }}
+{{- end }}
