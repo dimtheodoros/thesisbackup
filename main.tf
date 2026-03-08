@@ -376,6 +376,56 @@ resource "helm_release" "eastwest_gw_north" {
 }
 
 ############################################
+# Ingress gateways (one per cluster)
+############################################
+
+resource "helm_release" "istio_ingress_west" {
+  provider  = helm.west
+  name      = "istio-ingressgateway"
+  namespace = "istio-system"
+
+  repository = "https://istio-release.storage.googleapis.com/charts"
+  chart      = "gateway"
+  version    = var.istio_version
+
+  values = [
+    <<-EOT
+    labels:
+      istio: ingressgateway
+    service:
+      type: LoadBalancer
+    EOT
+  ]
+
+  depends_on = [
+    helm_release.istiod_west
+  ]
+}
+
+resource "helm_release" "istio_ingress_north" {
+  provider  = helm.north
+  name      = "istio-ingressgateway"
+  namespace = "istio-system"
+
+  repository = "https://istio-release.storage.googleapis.com/charts"
+  chart      = "gateway"
+  version    = var.istio_version
+
+  values = [
+    <<-EOT
+    labels:
+      istio: ingressgateway
+    service:
+      type: LoadBalancer
+    EOT
+  ]
+
+  depends_on = [
+    helm_release.istiod_north
+  ]
+}
+
+############################################
 # Apply YAML manifests via kubectl (replaces kubernetes_manifest)
 ############################################
 
@@ -547,6 +597,7 @@ EOT
 resource "null_resource" "apply_ingress_gateway_west" {
   depends_on = [
     helm_release.boutique_west,
+    helm_release.istio_ingress_west,
     local_file.kubeconfig_west
   ]
 
@@ -565,6 +616,7 @@ EOT
 resource "null_resource" "apply_ingress_gateway_north" {
   depends_on = [
     helm_release.boutique_north,
+    helm_release.istio_ingress_north,
     local_file.kubeconfig_north
   ]
 
