@@ -14,12 +14,12 @@ variable "zones_west" {
 
 variable "region_north" {
   type    = string
-  default = "europe-north1"
+  default = "europe-north2"
 }
 
 variable "zones_north" {
   type    = list(string)
-  default = ["europe-north1-a", "europe-north1-b", "europe-north1-c"]
+  default = ["europe-north2-a", "europe-north2-b", "europe-north2-c"]
 }
 
 variable "cluster_west_name" {
