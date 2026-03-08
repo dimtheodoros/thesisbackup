@@ -306,7 +306,16 @@ resource "helm_release" "istiod_west" {
   chart      = "istiod"
   version    = var.istio_version
 
-  values = [local.istiod_values_west]
+  values = [
+    local.istiod_values_west,
+    <<-EOT
+    meshConfig:
+      trustDomain: cluster.local
+    pilot:
+      env:
+        PILOT_SKIP_VALIDATE_TRUST_DOMAIN: "true"
+    EOT
+  ]
 
   depends_on = [
     helm_release.istio_base_west
@@ -322,7 +331,16 @@ resource "helm_release" "istiod_north" {
   chart      = "istiod"
   version    = var.istio_version
 
-  values = [local.istiod_values_north]
+  values = [
+    local.istiod_values_north,
+    <<-EOT
+    meshConfig:
+      trustDomain: cluster.local
+    pilot:
+      env:
+        PILOT_SKIP_VALIDATE_TRUST_DOMAIN: "true"
+    EOT
+  ]
 
   depends_on = [
     helm_release.istio_base_north
