@@ -5,6 +5,18 @@ provider "google" {
 
 data "google_client_config" "default" {}
 
+resource "google_compute_firewall" "allow_istio_cross_cluster" {
+  name    = "allow-istio-cross-cluster"
+  network = "default"
+
+  allow {
+    protocol = "tcp"
+    ports    = ["15443", "15021", "15012", "15017", "15010"]
+  }
+
+  source_ranges = ["0.0.0.0/0"]
+}
+
 ############################################
 # GKE clusters
 ############################################
