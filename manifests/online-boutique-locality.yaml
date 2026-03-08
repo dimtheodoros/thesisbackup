@@ -11,8 +11,8 @@ spec:
         enabled: true
         failover:
         - from: europe-west1
-          to: europe-north1
-        - from: europe-north1
+          to: europe-north2
+        - from: europe-north2
           to: europe-west1
     outlierDetection:
       consecutive5xxErrors: 1
@@ -33,8 +33,8 @@ spec:
         enabled: true
         failover:
         - from: europe-west1
-          to: europe-north1
-        - from: europe-north1
+          to: europe-north2
+        - from: europe-north2
           to: europe-west1
     outlierDetection:
       consecutive5xxErrors: 1
@@ -55,8 +55,8 @@ spec:
         enabled: true
         failover:
         - from: europe-west1
-          to: europe-north1
-        - from: europe-north1
+          to: europe-north2
+        - from: europe-north2
           to: europe-west1
     outlierDetection:
       consecutive5xxErrors: 1
@@ -77,8 +77,8 @@ spec:
         enabled: true
         failover:
         - from: europe-west1
-          to: europe-north1
-        - from: europe-north1
+          to: europe-north2
+        - from: europe-north2
           to: europe-west1
     outlierDetection:
       consecutive5xxErrors: 1
@@ -99,8 +99,8 @@ spec:
         enabled: true
         failover:
         - from: europe-west1
-          to: europe-north1
-        - from: europe-north1
+          to: europe-north2
+        - from: europe-north2
           to: europe-west1
     outlierDetection:
       consecutive5xxErrors: 1
@@ -121,8 +121,8 @@ spec:
         enabled: true
         failover:
         - from: europe-west1
-          to: europe-north1
-        - from: europe-north1
+          to: europe-north2
+        - from: europe-north2
           to: europe-west1
     outlierDetection:
       consecutive5xxErrors: 1
@@ -143,8 +143,8 @@ spec:
         enabled: true
         failover:
         - from: europe-west1
-          to: europe-north1
-        - from: europe-north1
+          to: europe-north2
+        - from: europe-north2
           to: europe-west1
     outlierDetection:
       consecutive5xxErrors: 1
@@ -165,8 +165,8 @@ spec:
         enabled: true
         failover:
         - from: europe-west1
-          to: europe-north1
-        - from: europe-north1
+          to: europe-north2
+        - from: europe-north2
           to: europe-west1
     outlierDetection:
       consecutive5xxErrors: 1
@@ -187,8 +187,8 @@ spec:
         enabled: true
         failover:
         - from: europe-west1
-          to: europe-north1
-        - from: europe-north1
+          to: europe-north2
+        - from: europe-north2
           to: europe-west1
     outlierDetection:
       consecutive5xxErrors: 1
@@ -209,8 +209,8 @@ spec:
         enabled: true
         failover:
         - from: europe-west1
-          to: europe-north1
-        - from: europe-north1
+          to: europe-north2
+        - from: europe-north2
           to: europe-west1
     outlierDetection:
       consecutive5xxErrors: 1
@@ -231,8 +231,8 @@ spec:
         enabled: true
         failover:
         - from: europe-west1
-          to: europe-north1
-        - from: europe-north1
+          to: europe-north2
+        - from: europe-north2
           to: europe-west1
     outlierDetection:
       consecutive5xxErrors: 1
