@@ -451,7 +451,16 @@ resource "helm_release" "istiod_west" {
   version    = var.istio_version
 
   values = [
-    local.istiod_values_west
+    local.istiod_values_west,
+    <<-EOT
+    meshConfig:
+      trustDomain: cluster.local
+      enablePrometheusMerge: true
+      defaultConfig:
+        proxyMetadata:
+          ISTIO_META_DNS_CAPTURE: "true"
+          ISTIO_META_DNS_AUTO_ALLOCATE: "true"
+    EOT
   ]
 
   depends_on = [
@@ -470,7 +479,16 @@ resource "helm_release" "istiod_north" {
   version    = var.istio_version
 
   values = [
-    local.istiod_values_north
+    local.istiod_values_north,
+    <<-EOT
+    meshConfig:
+      trustDomain: cluster.local
+      enablePrometheusMerge: true
+      defaultConfig:
+        proxyMetadata:
+          ISTIO_META_DNS_CAPTURE: "true"
+          ISTIO_META_DNS_AUTO_ALLOCATE: "true"
+    EOT
   ]
 
   depends_on = [
