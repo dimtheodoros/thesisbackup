@@ -252,6 +252,138 @@ EOT
 }
 
 ############################################
+# Automated Istio Shared Root CA setup
+############################################
+
+# 1. Root CA
+resource "tls_private_key" "root" {
+  algorithm = "RSA"
+  rsa_bits  = 4096
+}
+
+resource "tls_self_signed_cert" "root" {
+  private_key_pem = tls_private_key.root.private_key_pem
+
+  subject {
+    common_name  = "Istio Root CA"
+    organization = "Istio"
+  }
+
+  validity_period_hours = 87600 # 10 years
+  is_ca_certificate     = true
+
+  allowed_uses = [
+    "cert_signing",
+    "crl_signing",
+  ]
+}
+
+# 2. Intermediate CA for West
+resource "tls_private_key" "west" {
+  algorithm = "RSA"
+  rsa_bits  = 4096
+}
+
+resource "tls_cert_request" "west" {
+  private_key_pem = tls_private_key.west.private_key_pem
+
+  subject {
+    common_name  = "Istio West Intermediate CA"
+    organization = "Istio"
+  }
+}
+
+resource "tls_locally_signed_cert" "west" {
+  cert_request_pem   = tls_cert_request.west.cert_request_pem
+  ca_private_key_pem = tls_private_key.root.private_key_pem
+  ca_cert_pem        = tls_self_signed_cert.root.cert_pem
+
+  validity_period_hours = 43800 # 5 years
+  is_ca_certificate     = true
+
+  allowed_uses = [
+    "cert_signing",
+    "crl_signing",
+  ]
+}
+
+# 3. Intermediate CA for North
+resource "tls_private_key" "north" {
+  algorithm = "RSA"
+  rsa_bits  = 4096
+}
+
+resource "tls_cert_request" "north" {
+  private_key_pem = tls_private_key.north.private_key_pem
+
+  subject {
+    common_name  = "Istio North Intermediate CA"
+    organization = "Istio"
+  }
+}
+
+resource "tls_locally_signed_cert" "north" {
+  cert_request_pem   = tls_cert_request.north.cert_request_pem
+  ca_private_key_pem = tls_private_key.root.private_key_pem
+  ca_cert_pem        = tls_self_signed_cert.root.cert_pem
+
+  validity_period_hours = 43800 # 5 years
+  is_ca_certificate     = true
+
+  allowed_uses = [
+    "cert_signing",
+    "crl_signing",
+  ]
+}
+
+# 4. Create cacerts secret in each cluster
+resource "null_resource" "cacerts_west" {
+  depends_on = [null_resource.ns_istio_west]
+
+  triggers = {
+    ca_cert    = tls_locally_signed_cert.west.cert_pem
+    ca_key     = tls_private_key.west.private_key_pem
+    root_cert  = tls_self_signed_cert.root.cert_pem
+    cert_chain = "${tls_locally_signed_cert.west.cert_pem}${tls_self_signed_cert.root.cert_pem}"
+  }
+
+  provisioner "local-exec" {
+    command = <<EOT
+set -euo pipefail
+KUBECONFIG="${local_file.kubeconfig_west.filename}" kubectl delete secret cacerts -n istio-system --ignore-not-found
+KUBECONFIG="${local_file.kubeconfig_west.filename}" kubectl create secret generic cacerts -n istio-system \
+  --from-literal=ca-cert.pem="${self.triggers.ca_cert}" \
+  --from-literal=ca-key.pem="${self.triggers.ca_key}" \
+  --from-literal=root-cert.pem="${self.triggers.root_cert}" \
+  --from-literal=cert-chain.pem="${self.triggers.cert_chain}"
+EOT
+  }
+}
+
+resource "null_resource" "cacerts_north" {
+  depends_on = [null_resource.ns_istio_north]
+
+  triggers = {
+    ca_cert    = tls_locally_signed_cert.north.cert_pem
+    ca_key     = tls_private_key.north.private_key_pem
+    root_cert  = tls_self_signed_cert.root.cert_pem
+    cert_chain = "${tls_locally_signed_cert.north.cert_pem}${tls_self_signed_cert.root.cert_pem}"
+  }
+
+  provisioner "local-exec" {
+    command = <<EOT
+set -euo pipefail
+KUBECONFIG="${local_file.kubeconfig_north.filename}" kubectl delete secret cacerts -n istio-system --ignore-not-found
+KUBECONFIG="${local_file.kubeconfig_north.filename}" kubectl create secret generic cacerts -n istio-system \
+  --from-literal=ca-cert.pem="${self.triggers.ca_cert}" \
+  --from-literal=ca-key.pem="${self.triggers.ca_key}" \
+  --from-literal=root-cert.pem="${self.triggers.root_cert}" \
+  --from-literal=cert-chain.pem="${self.triggers.cert_chain}"
+EOT
+  }
+}
+
+############################################
 # Istio install via Helm: base + istiod
 ############################################
 
@@ -307,18 +439,12 @@ resource "helm_release" "istiod_west" {
   version    = var.istio_version
 
   values = [
-    local.istiod_values_west,
-    <<-EOT
-    meshConfig:
-      trustDomain: cluster.local
-    pilot:
-      env:
-        PILOT_SKIP_VALIDATE_TRUST_DOMAIN: "true"
-    EOT
+    local.istiod_values_west
   ]
 
   depends_on = [
-    helm_release.istio_base_west
+    helm_release.istio_base_west,
+    null_resource.cacerts_west
   ]
 }
 
@@ -332,18 +458,12 @@ resource "helm_release" "istiod_north" {
   version    = var.istio_version
 
   values = [
-    local.istiod_values_north,
-    <<-EOT
-    meshConfig:
-      trustDomain: cluster.local
-    pilot:
-      env:
-        PILOT_SKIP_VALIDATE_TRUST_DOMAIN: "true"
-    EOT
+    local.istiod_values_north
   ]
 
   depends_on = [
-    helm_release.istio_base_north
+    helm_release.istio_base_north,
+    null_resource.cacerts_north
   ]
 }
 

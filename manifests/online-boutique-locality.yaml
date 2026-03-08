@@ -20,7 +20,7 @@ spec:
       baseEjectionTime: 1m
       maxEjectionPercent: 100
     tls:
-      mode: DISABLE
+      mode: ISTIO_MUTUAL
 ---
 apiVersion: networking.istio.io/v1beta1
 kind: DestinationRule
@@ -44,7 +44,7 @@ spec:
       baseEjectionTime: 1m
       maxEjectionPercent: 100
     tls:
-      mode: DISABLE
+      mode: ISTIO_MUTUAL
 ---
 apiVersion: networking.istio.io/v1beta1
 kind: DestinationRule
@@ -68,7 +68,7 @@ spec:
       baseEjectionTime: 1m
       maxEjectionPercent: 100
     tls:
-      mode: DISABLE
+      mode: ISTIO_MUTUAL
 ---
 apiVersion: networking.istio.io/v1beta1
 kind: DestinationRule
@@ -92,7 +92,7 @@ spec:
       baseEjectionTime: 1m
       maxEjectionPercent: 100
     tls:
-      mode: DISABLE
+      mode: ISTIO_MUTUAL
 ---
 apiVersion: networking.istio.io/v1beta1
 kind: DestinationRule
@@ -116,7 +116,7 @@ spec:
       baseEjectionTime: 1m
       maxEjectionPercent: 100
     tls:
-      mode: DISABLE
+      mode: ISTIO_MUTUAL
 ---
 apiVersion: networking.istio.io/v1beta1
 kind: DestinationRule
@@ -140,7 +140,7 @@ spec:
       baseEjectionTime: 1m
       maxEjectionPercent: 100
     tls:
-      mode: DISABLE
+      mode: ISTIO_MUTUAL
 ---
 apiVersion: networking.istio.io/v1beta1
 kind: DestinationRule
@@ -164,7 +164,7 @@ spec:
       baseEjectionTime: 1m
       maxEjectionPercent: 100
     tls:
-      mode: DISABLE
+      mode: ISTIO_MUTUAL
 ---
 apiVersion: networking.istio.io/v1beta1
 kind: DestinationRule
@@ -188,7 +188,7 @@ spec:
       baseEjectionTime: 1m
       maxEjectionPercent: 100
     tls:
-      mode: DISABLE
+      mode: ISTIO_MUTUAL
 ---
 apiVersion: networking.istio.io/v1beta1
 kind: DestinationRule
@@ -212,7 +212,7 @@ spec:
       baseEjectionTime: 1m
       maxEjectionPercent: 100
     tls:
-      mode: DISABLE
+      mode: ISTIO_MUTUAL
 ---
 apiVersion: networking.istio.io/v1beta1
 kind: DestinationRule
@@ -236,7 +236,7 @@ spec:
       baseEjectionTime: 1m
       maxEjectionPercent: 100
     tls:
-      mode: DISABLE
+      mode: ISTIO_MUTUAL
 ---
 apiVersion: networking.istio.io/v1beta1
 kind: DestinationRule
@@ -260,4 +260,4 @@ spec:
       baseEjectionTime: 1m
       maxEjectionPercent: 100
     tls:
-      mode: DISABLE
+      mode: ISTIO_MUTUAL
