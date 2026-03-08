@@ -19,6 +19,8 @@ spec:
       interval: 1s
       baseEjectionTime: 1m
       maxEjectionPercent: 100
+    tls:
+      mode: DISABLE
 ---
 apiVersion: networking.istio.io/v1beta1
 kind: DestinationRule
@@ -41,6 +43,8 @@ spec:
       interval: 1s
       baseEjectionTime: 1m
       maxEjectionPercent: 100
+    tls:
+      mode: DISABLE
 ---
 apiVersion: networking.istio.io/v1beta1
 kind: DestinationRule
@@ -63,6 +67,8 @@ spec:
       interval: 1s
       baseEjectionTime: 1m
       maxEjectionPercent: 100
+    tls:
+      mode: DISABLE
 ---
 apiVersion: networking.istio.io/v1beta1
 kind: DestinationRule
@@ -85,6 +91,8 @@ spec:
       interval: 1s
       baseEjectionTime: 1m
       maxEjectionPercent: 100
+    tls:
+      mode: DISABLE
 ---
 apiVersion: networking.istio.io/v1beta1
 kind: DestinationRule
@@ -107,6 +115,8 @@ spec:
       interval: 1s
       baseEjectionTime: 1m
       maxEjectionPercent: 100
+    tls:
+      mode: DISABLE
 ---
 apiVersion: networking.istio.io/v1beta1
 kind: DestinationRule
@@ -129,6 +139,8 @@ spec:
       interval: 1s
       baseEjectionTime: 1m
       maxEjectionPercent: 100
+    tls:
+      mode: DISABLE
 ---
 apiVersion: networking.istio.io/v1beta1
 kind: DestinationRule
@@ -151,6 +163,8 @@ spec:
       interval: 1s
       baseEjectionTime: 1m
       maxEjectionPercent: 100
+    tls:
+      mode: DISABLE
 ---
 apiVersion: networking.istio.io/v1beta1
 kind: DestinationRule
@@ -173,6 +187,8 @@ spec:
       interval: 1s
       baseEjectionTime: 1m
       maxEjectionPercent: 100
+    tls:
+      mode: DISABLE
 ---
 apiVersion: networking.istio.io/v1beta1
 kind: DestinationRule
@@ -195,6 +211,8 @@ spec:
       interval: 1s
       baseEjectionTime: 1m
       maxEjectionPercent: 100
+    tls:
+      mode: DISABLE
 ---
 apiVersion: networking.istio.io/v1beta1
 kind: DestinationRule
@@ -217,6 +235,8 @@ spec:
       interval: 1s
       baseEjectionTime: 1m
       maxEjectionPercent: 100
+    tls:
+      mode: DISABLE
 ---
 apiVersion: networking.istio.io/v1beta1
 kind: DestinationRule
@@ -239,3 +259,5 @@ spec:
       interval: 1s
       baseEjectionTime: 1m
       maxEjectionPercent: 100
+    tls:
+      mode: DISABLE
