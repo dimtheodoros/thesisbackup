@@ -5,24 +5,27 @@ set -euo pipefail
 helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
 helm repo update
 
+# Create a temporary values file for each cluster to handle the ${cluster_name} variable
+mkdir -p ./.generated/monitoring
+
 # 2. Deploy Prometheus to West (Belgium)
 echo "Deploying Prometheus to West cluster..."
+sed "s/\${cluster_name}/eu-west/g" ./templates/monitoring/prometheus-values.yaml.tpl > ./.generated/monitoring/values-west.yaml
 helm upgrade --install prometheus prometheus-community/kube-prometheus-stack \
   --kubeconfig "./.generated/kubeconfig-eu-west.yaml" \
   --namespace "online-boutique" \
-  --values "./templates/monitoring/prometheus-values.yaml.tpl" \
-  --set prometheus.prometheusSpec.externalLabels.cluster="eu-west" \
+  --values "./.generated/monitoring/values-west.yaml" \
   --set grafana.enabled=true \
-  --set grafana.podAnnotations."sidecar\.istio\.io/inject"="false" \
+  --set grafana.adminPassword=admin \
   --wait
 
 # 3. Deploy Prometheus to North (Finland)
 echo "Deploying Prometheus to North cluster..."
+sed "s/\${cluster_name}/eu-north/g" ./templates/monitoring/prometheus-values.yaml.tpl > ./.generated/monitoring/values-north.yaml
 helm upgrade --install prometheus prometheus-community/kube-prometheus-stack \
   --kubeconfig "./.generated/kubeconfig-eu-north.yaml" \
   --namespace "online-boutique" \
-  --values "./templates/monitoring/prometheus-values.yaml.tpl" \
-  --set prometheus.prometheusSpec.externalLabels.cluster="eu-north" \
+  --values "./.generated/monitoring/values-north.yaml" \
   --set grafana.enabled=false \
   --wait
 
