@@ -1,0 +1,57 @@
+# ServiceEntry in West to reach North Prometheus
+apiVersion: networking.istio.io/v1beta1
+kind: ServiceEntry
+metadata:
+  name: prometheus-north
+  namespace: online-boutique
+spec:
+  hosts:
+  - prometheus-north.global
+  addresses:
+  - 240.240.0.1 # Virtual IP to force DNS capture
+  location: MESH_INTERNAL
+  ports:
+  - name: http-prometheus
+    number: 9090
+    protocol: HTTP
+  resolution: DNS
+  endpoints:
+  - address: ${north_gateway_ip}
+    network: eu-north-network
+    ports:
+      http-prometheus: 15443
+---
+# DestinationRule in West to force MTLS to North Prometheus
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: prometheus-north-mtls
+  namespace: online-boutique
+spec:
+  host: prometheus-north.global
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL
+      sni: prometheus-north.global
+---
+# VirtualService in North to route to local Prometheus (SNI-based)
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: prometheus-north-route
+  namespace: online-boutique
+spec:
+  hosts:
+  - "prometheus-north.global"
+  gateways:
+  - istio-system/cross-network-gateway
+  tls:
+  - match:
+    - port: 15443
+      sniHosts:
+      - "prometheus-north.global"
+    route:
+    - destination:
+        host: prometheus-operated.online-boutique.svc.cluster.local
+        port:
+          number: 9090
