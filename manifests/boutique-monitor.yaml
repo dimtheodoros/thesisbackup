@@ -1,0 +1,20 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: boutique-monitor
+  namespace: online-boutique
+  labels:
+    release: prometheus
+spec:
+  selector:
+    matchExpressions:
+    - key: app
+      operator: Exists
+  namespaceSelector:
+    matchNames:
+    - online-boutique
+  endpoints:
+  - port: http
+    targetPort: 15020
+    path: /stats/prometheus
+    interval: 15s

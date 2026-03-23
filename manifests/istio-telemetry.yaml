@@ -1,0 +1,20 @@
+apiVersion: telemetry.istio.io/v1
+kind: Telemetry
+metadata:
+  name: mesh-default
+  namespace: istio-system
+spec:
+  metrics:
+  - providers:
+    - name: prometheus
+    overrides:
+    - tagOverrides:
+        source_cluster:
+          value: "true"
+        destination_cluster:
+          value: "true"
+        request_protocol:
+          value: "true"
+  accessLogging:
+  - providers:
+    - name: envoy
