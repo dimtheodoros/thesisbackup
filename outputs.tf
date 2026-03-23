@@ -15,6 +15,5 @@ output "app_url_finland" {
 }
 
 output "grafana_url" {
-  value = "http://${data.kubernetes_service.grafana_public.status[0].load_balancer[0].ingress[0].ip}"
-  # Note: Only available after Layer 2 is deployed and 'grafana-public' service is created.
+  value = try("http://${data.kubernetes_service.grafana_public.status[0].load_balancer[0].ingress[0].ip}", "Not deployed yet")
 }
