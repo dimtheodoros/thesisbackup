@@ -835,3 +835,35 @@ KUBECONFIG="${local_file.kubeconfig_north.filename}" kubectl apply -f "${path.mo
 EOT
   }
 }
+
+############################################
+# Data sources for correct Outputs
+############################################
+
+data "kubernetes_service" "ingress_west" {
+  provider = kubernetes.west
+  metadata {
+    name      = "istio-ingressgateway"
+    namespace = "istio-system"
+  }
+  depends_on = [helm_release.istio_ingress_west]
+}
+
+data "kubernetes_service" "ingress_north" {
+  provider = kubernetes.north
+  metadata {
+    name      = "istio-ingressgateway"
+    namespace = "istio-system"
+  }
+  depends_on = [helm_release.istio_ingress_north]
+}
+
+data "kubernetes_service" "grafana_public" {
+  provider = kubernetes.west
+  metadata {
+    name      = "grafana-public"
+    namespace = var.online_boutique_namespace
+  }
+  # This data source will be available once the Layer 2 script creates the service.
+}
+
