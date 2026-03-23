@@ -7,14 +7,6 @@ spec:
   metrics:
   - providers:
     - name: prometheus
-    overrides:
-    - tagOverrides:
-        source_cluster:
-          expression: upstream_peer.cluster_id
-        destination_cluster:
-          expression: downstream_peer.cluster_id
-        request_protocol:
-          expression: request.protocol
   accessLogging:
   - providers:
     - name: envoy
