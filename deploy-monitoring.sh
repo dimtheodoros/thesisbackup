@@ -23,6 +23,7 @@ helm upgrade --install prometheus prometheus-community/kube-prometheus-stack \
   --set grafana.adminPassword=admin \
   --set grafana.sidecar.datasources.enabled=true \
   --set grafana.sidecar.datasources.label=grafana_datasource \
+  --set grafana.sidecar.datasources.defaultDatasourceEnabled=false \
   --wait
 
 # 3. Deploy Prometheus to North (Finland)
@@ -87,6 +88,10 @@ KUBECONFIG="$NORTH_KUBECONFIG" kubectl apply -f manifests/monitoring-auth.yaml
 echo "🌐 Exposing Grafana..."
 KUBECONFIG="$WEST_KUBECONFIG" kubectl expose deployment prometheus-grafana \
   --type=LoadBalancer --name=grafana-public -n "$NAMESPACE" --port=80 --target-port=3000 || true
+
+# 8. Force a restart of Grafana to ensure clean state
+echo "♻️ Restarting Grafana..."
+KUBECONFIG="$WEST_KUBECONFIG" kubectl rollout restart deployment prometheus-grafana -n "$NAMESPACE"
 
 echo "✨ Layer 2 Monitoring Deployed Successfully!"
 echo "------------------------------------------------"
