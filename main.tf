@@ -858,12 +858,3 @@ data "kubernetes_service" "ingress_north" {
   depends_on = [helm_release.istio_ingress_north]
 }
 
-data "kubernetes_service" "grafana_public" {
-  provider = kubernetes.west
-  metadata {
-    name      = "grafana-public"
-    namespace = var.online_boutique_namespace
-  }
-  # This data source will be available once the Layer 2 script creates the service.
-}
-
