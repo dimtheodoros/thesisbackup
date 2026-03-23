@@ -4,12 +4,12 @@ variable "project_id" {
 
 variable "region_west" {
   type    = string
-  default = "europe-west1"
+  default = "europe-central2"
 }
 
 variable "zones_west" {
   type    = list(string)
-  default = ["europe-west1-b", "europe-west1-c", "europe-west1-d"]
+  default = ["europe-central2-a", "europe-central2-b"]
 }
 
 variable "region_north" {
@@ -39,12 +39,12 @@ variable "gke_release_channel" {
 
 variable "node_machine_type" {
   type    = string
-  default = "e2-standard-4"
+  default = "e2-standard-2"
 }
 
 variable "node_disk_gb" {
   type    = number
-  default = 100
+  default = 50
 }
 
 variable "min_nodes" {
@@ -54,13 +54,13 @@ variable "min_nodes" {
 
 variable "max_nodes" {
   type    = number
-  default = 5
+  default = 3
 }
 
 # For regional clusters, this is effectively per-zone node_count within the node pool.
 variable "nodes_per_zone" {
   type    = number
-  default = 2
+  default = 1
 }
 
 variable "istio_version" {
