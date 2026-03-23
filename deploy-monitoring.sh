@@ -89,11 +89,15 @@ echo "🌐 Exposing Grafana..."
 KUBECONFIG="$WEST_KUBECONFIG" kubectl expose deployment prometheus-grafana \
   --type=LoadBalancer --name=grafana-public -n "$NAMESPACE" --port=80 --target-port=3000 || true
 
+echo "⏳ Waiting 45 seconds for Grafana public IP..."
+sleep 45
+
 # 8. Force a restart of Grafana to ensure clean state
 echo "♻️ Restarting Grafana..."
 KUBECONFIG="$WEST_KUBECONFIG" kubectl rollout restart deployment prometheus-grafana -n "$NAMESPACE"
 
 echo "✨ Layer 2 Monitoring Deployed Successfully!"
 echo "------------------------------------------------"
-echo "Grafana URL: http://$(KUBECONFIG="$WEST_KUBECONFIG" kubectl get svc grafana-public -n "$NAMESPACE" -o jsonpath='{.status.loadBalancer.ingress[0].ip}')"
+GRAFANA_IP=$(KUBECONFIG="$WEST_KUBECONFIG" kubectl get svc grafana-public -n "$NAMESPACE" -o jsonpath='{.status.loadBalancer.ingress[0].ip}' || echo "PENDING")
+echo "Grafana URL: http://$GRAFANA_IP"
 echo "Password: admin"
