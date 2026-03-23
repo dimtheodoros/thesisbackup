@@ -1,49 +1,94 @@
 #!/bin/bash
 set -euo pipefail
 
+# --- Configuration ---
+NAMESPACE="online-boutique"
+WEST_KUBECONFIG="./.generated/kubeconfig-eu-west.yaml"
+NORTH_KUBECONFIG="./.generated/kubeconfig-eu-north.yaml"
+
+echo "🚀 Starting Layer 2 Deployment (Monitoring)..."
+
 # 1. Setup Helm Repos
 helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
 helm repo update
 
-# Create a temporary values file for each cluster to handle the ${cluster_name} variable
-mkdir -p ./.generated/monitoring
-
-# 2. Deploy Prometheus to West (Belgium)
-echo "Deploying Prometheus to West cluster..."
-sed "s/\${cluster_name}/eu-west/g" ./templates/monitoring/prometheus-values.yaml.tpl > ./.generated/monitoring/values-west.yaml
+# 2. Deploy Prometheus/Grafana to West (Belgium)
+echo "📦 Deploying Prometheus/Grafana to West cluster..."
+sed "s/\${cluster_name}/eu-west/g" ./templates/monitoring/prometheus-values.yaml.tpl > ./.generated/values-west.yaml
 helm upgrade --install prometheus prometheus-community/kube-prometheus-stack \
-  --kubeconfig "./.generated/kubeconfig-eu-west.yaml" \
-  --namespace "online-boutique" \
-  --values "./.generated/monitoring/values-west.yaml" \
+  --kubeconfig "$WEST_KUBECONFIG" \
+  --namespace "$NAMESPACE" \
+  --values "./.generated/values-west.yaml" \
   --set grafana.enabled=true \
   --set grafana.adminPassword=admin \
+  --set grafana.sidecar.datasources.enabled=true \
+  --set grafana.sidecar.datasources.label=grafana_datasource \
   --wait
 
 # 3. Deploy Prometheus to North (Finland)
-echo "Deploying Prometheus to North cluster..."
-sed "s/\${cluster_name}/eu-north/g" ./templates/monitoring/prometheus-values.yaml.tpl > ./.generated/monitoring/values-north.yaml
+echo "📦 Deploying Prometheus to North cluster..."
+sed "s/\${cluster_name}/eu-north/g" ./templates/monitoring/prometheus-values.yaml.tpl > ./.generated/values-north.yaml
 helm upgrade --install prometheus prometheus-community/kube-prometheus-stack \
-  --kubeconfig "./.generated/kubeconfig-eu-north.yaml" \
-  --namespace "online-boutique" \
-  --values "./.generated/monitoring/values-north.yaml" \
+  --kubeconfig "$NORTH_KUBECONFIG" \
+  --namespace "$NAMESPACE" \
+  --values "./.generated/values-north.yaml" \
   --set grafana.enabled=false \
   --wait
 
-# 4. Apply Istio Telemetry and ServiceMonitor
-echo "Applying Istio Telemetry and ServiceMonitor..."
-KUBECONFIG="./.generated/kubeconfig-eu-west.yaml" kubectl apply -f manifests/istio-telemetry.yaml
-KUBECONFIG="./.generated/kubeconfig-eu-north.yaml" kubectl apply -f manifests/istio-telemetry.yaml
-KUBECONFIG="./.generated/kubeconfig-eu-west.yaml" kubectl apply -f manifests/boutique-monitor.yaml
-KUBECONFIG="./.generated/kubeconfig-eu-north.yaml" kubectl apply -f manifests/boutique-monitor.yaml
+# 4. Expose North Prometheus via Public LoadBalancer
+echo "🌐 Exposing North Prometheus..."
+KUBECONFIG="$NORTH_KUBECONFIG" kubectl expose service prometheus-operated \
+  --type=LoadBalancer --name=prometheus-public -n "$NAMESPACE" --port=9090 --target-port=9090 || true
 
-# 5. Apply Permissive Auth for Scrapers
-echo "Applying Permissive PeerAuthentication..."
-KUBECONFIG="./.generated/kubeconfig-eu-west.yaml" kubectl apply -f manifests/monitoring-auth.yaml
-KUBECONFIG="./.generated/kubeconfig-eu-north.yaml" kubectl apply -f manifests/monitoring-auth.yaml
+echo "⏳ Waiting for North Prometheus IP..."
+while true; do
+  NORTH_PROM_IP=$(KUBECONFIG="$NORTH_KUBECONFIG" kubectl get svc prometheus-public -n "$NAMESPACE" -o jsonpath="{.status.loadBalancer.ingress[0].ip}" || echo "")
+  if [ ! -z "$NORTH_PROM_IP" ]; then break; fi
+  sleep 5
+done
+echo "✅ North Prometheus IP: $NORTH_PROM_IP"
 
-# 6. Create Public LoadBalancer for Grafana
-echo "Exposing Grafana via public LoadBalancer..."
-KUBECONFIG="./.generated/kubeconfig-eu-west.yaml" kubectl expose deployment prometheus-grafana \
-  --type=LoadBalancer --name=grafana-public -n online-boutique --port=80 --target-port=3000 || true
+# 5. Inject Clean DataSources into West Grafana
+echo "💉 Injecting cross-cluster datasources..."
+cat <<EOF | KUBECONFIG="$WEST_KUBECONFIG" kubectl apply -f -
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-datasources-clean
+  namespace: $NAMESPACE
+  labels:
+    grafana_datasource: "1"
+data:
+  manual-datasources.yaml: |
+    apiVersion: 1
+    datasources:
+    - name: eu-west
+      type: prometheus
+      url: http://prometheus-operated.$NAMESPACE.svc.cluster.local:9090
+      access: proxy
+      isDefault: true
+    - name: eu-north
+      type: prometheus
+      url: http://$NORTH_PROM_IP:9090
+      access: proxy
+      isDefault: false
+EOF
 
-echo "Monitoring stack (Layer 2) deployed successfully!"
+# 6. Apply Istio Telemetry, Scrapers, and Permissive Auth
+echo "🛠️ Configuring Istio Metrics and Auth..."
+KUBECONFIG="$WEST_KUBECONFIG" kubectl apply -f manifests/istio-telemetry.yaml
+KUBECONFIG="$NORTH_KUBECONFIG" kubectl apply -f manifests/istio-telemetry.yaml
+KUBECONFIG="$WEST_KUBECONFIG" kubectl apply -f manifests/boutique-monitor.yaml
+KUBECONFIG="$NORTH_KUBECONFIG" kubectl apply -f manifests/boutique-monitor.yaml
+KUBECONFIG="$WEST_KUBECONFIG" kubectl apply -f manifests/monitoring-auth.yaml
+KUBECONFIG="$NORTH_KUBECONFIG" kubectl apply -f manifests/monitoring-auth.yaml
+
+# 7. Expose Grafana
+echo "🌐 Exposing Grafana..."
+KUBECONFIG="$WEST_KUBECONFIG" kubectl expose deployment prometheus-grafana \
+  --type=LoadBalancer --name=grafana-public -n "$NAMESPACE" --port=80 --target-port=3000 || true
+
+echo "✨ Layer 2 Monitoring Deployed Successfully!"
+echo "------------------------------------------------"
+echo "Grafana URL: http://$(KUBECONFIG="$WEST_KUBECONFIG" kubectl get svc grafana-public -n "$NAMESPACE" -o jsonpath='{.status.loadBalancer.ingress[0].ip}')"
+echo "Password: admin"
