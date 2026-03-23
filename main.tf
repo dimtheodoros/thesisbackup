@@ -11,7 +11,7 @@ resource "google_compute_firewall" "allow_istio_cross_cluster" {
 
   allow {
     protocol = "tcp"
-    ports    = ["15443", "15021", "15012", "15017", "15010"]
+    ports    = ["80", "443", "15443", "15021", "15012", "15017", "15010"]
   }
 
   source_ranges = ["0.0.0.0/0"]
