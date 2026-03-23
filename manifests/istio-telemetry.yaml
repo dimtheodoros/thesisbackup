@@ -10,11 +10,11 @@ spec:
     overrides:
     - tagOverrides:
         source_cluster:
-          value: "true"
+          expression: upstream_peer.cluster_id
         destination_cluster:
-          value: "true"
+          expression: downstream_peer.cluster_id
         request_protocol:
-          value: "true"
+          expression: request.protocol
   accessLogging:
   - providers:
     - name: envoy
