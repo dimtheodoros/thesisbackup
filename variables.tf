@@ -93,5 +93,5 @@ variable "online_boutique_namespace" {
 # (the folder that contains Chart.yaml).
 variable "online_boutique_chart_path" {
   type    = string
-  default = "../OnlineBoutique app/helm-chart"
+  default = "./OnlineBoutique app/helm-chart"
 }
