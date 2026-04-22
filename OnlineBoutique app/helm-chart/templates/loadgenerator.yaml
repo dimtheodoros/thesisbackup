@@ -107,6 +107,15 @@ spec:
           privileged: false
           readOnlyRootFilesystem: true
         image: {{ .Values.images.repository }}/{{ .Values.loadGenerator.name }}:{{ .Values.images.tag | default .Chart.AppVersion }}
+        command:
+        - locust
+        args:
+        - '--host=http://frontend'
+        - '--headless'
+        - '-u'
+        - '300'
+        - '-r'
+        - '100'
         env:
         - name: FRONTEND_ADDR
           value: "{{ .Values.frontend.name }}:80"
