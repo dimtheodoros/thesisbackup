@@ -17,3 +17,5 @@ cartService:
     maxReplicas: 3
     targetCPUUtilizationPercentage: 70
 # Keep other services at 1 replica to save quota
+loadGenerator:
+  create: true
