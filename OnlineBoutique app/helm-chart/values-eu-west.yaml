@@ -1,3 +1,6 @@
 global:
   region: eu-west
   clusterName: cluster-eu-west
+
+loadGenerator:
+  create: true
