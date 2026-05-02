@@ -8,12 +8,20 @@ NORTH_KUBECONFIG="./.generated/kubeconfig-eu-north.yaml"
 
 echo "🧹 Starting Layer 2 Cleanup (Monitoring)..."
 
-# 1. Uninstall Helm Releases
+# 1. Uninstall Helm Releases (terminates pods, releasing PVC protection finalizers)
 echo "🗑️ Uninstalling Prometheus from West..."
 helm uninstall prometheus --kubeconfig "$WEST_KUBECONFIG" --namespace "$NAMESPACE" || true
 
 echo "🗑️ Uninstalling Prometheus from North..."
 helm uninstall prometheus --kubeconfig "$NORTH_KUBECONFIG" --namespace "$NAMESPACE" || true
+
+# 2. Delete PVCs so EBS volumes are released (pods are already gone)
+echo "🗑️ Deleting Prometheus PVCs on West..."
+KUBECONFIG="$WEST_KUBECONFIG" kubectl delete pvc \
+  -l app.kubernetes.io/name=prometheus -n "$NAMESPACE" --ignore-not-found --wait
+echo "🗑️ Deleting Prometheus PVCs on North..."
+KUBECONFIG="$NORTH_KUBECONFIG" kubectl delete pvc \
+  -l app.kubernetes.io/name=prometheus -n "$NAMESPACE" --ignore-not-found --wait
 
 # 2. Delete Public Services
 echo "🌐 Removing public LoadBalancers..."
