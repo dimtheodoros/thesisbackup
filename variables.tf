@@ -1,25 +1,21 @@
-variable "project_id" {
-  type = string
-}
-
 variable "region_west" {
   type    = string
-  default = "europe-central2"
+  default = "eu-west-1"
 }
 
 variable "zones_west" {
   type    = list(string)
-  default = ["europe-central2-a", "europe-central2-b"]
+  default = ["eu-west-1a", "eu-west-1b"]
 }
 
 variable "region_north" {
   type    = string
-  default = "europe-north2"
+  default = "eu-north-1"
 }
 
 variable "zones_north" {
   type    = list(string)
-  default = ["europe-north2-a", "europe-north2-b", "europe-north2-c"]
+  default = ["eu-north-1a", "eu-north-1b"]
 }
 
 variable "cluster_west_name" {
@@ -32,14 +28,9 @@ variable "cluster_north_name" {
   default = "eu-north"
 }
 
-variable "gke_release_channel" {
-  type    = string
-  default = "REGULAR"
-}
-
 variable "node_machine_type" {
   type    = string
-  default = "e2-standard-2"
+  default = "t3.large"
 }
 
 variable "node_disk_gb" {

@@ -12,7 +12,14 @@ echo "🚀 Starting Layer 2 Deployment (Monitoring)..."
 helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
 helm repo update
 
-# 2. Deploy Prometheus/Grafana to West (Belgium)
+# 2. Set gp2 as the default StorageClass (required for Prometheus PVCs)
+echo "💾 Setting default StorageClass on both clusters..."
+KUBECONFIG="$WEST_KUBECONFIG" kubectl patch storageclass gp2 \
+  -p '{"metadata":{"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'
+KUBECONFIG="$NORTH_KUBECONFIG" kubectl patch storageclass gp2 \
+  -p '{"metadata":{"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'
+
+# 3. Deploy Prometheus/Grafana to West (Belgium)
 echo "📦 Deploying Prometheus/Grafana to West cluster..."
 sed "s/\${cluster_name}/eu-west/g" ./templates/monitoring/prometheus-values.yaml.tpl > ./.generated/values-west.yaml
 helm upgrade --install prometheus prometheus-community/kube-prometheus-stack \
@@ -24,6 +31,9 @@ helm upgrade --install prometheus prometheus-community/kube-prometheus-stack \
   --set grafana.sidecar.datasources.enabled=true \
   --set grafana.sidecar.datasources.label=grafana_datasource \
   --set grafana.sidecar.datasources.defaultDatasourceEnabled=false \
+  --set prometheusOperator.admissionWebhooks.enabled=false \
+  --set prometheusOperator.admissionWebhooks.patch.enabled=false \
+  --set prometheusOperator.tls.enabled=false \
   --wait
 
 # 3. Deploy Prometheus to North (Finland)
@@ -34,6 +44,9 @@ helm upgrade --install prometheus prometheus-community/kube-prometheus-stack \
   --namespace "$NAMESPACE" \
   --values "./.generated/values-north.yaml" \
   --set grafana.enabled=false \
+  --set prometheusOperator.admissionWebhooks.enabled=false \
+  --set prometheusOperator.admissionWebhooks.patch.enabled=false \
+  --set prometheusOperator.tls.enabled=false \
   --wait
 
 # 4. Expose North Prometheus via Public LoadBalancer
@@ -43,7 +56,7 @@ KUBECONFIG="$NORTH_KUBECONFIG" kubectl expose service prometheus-operated \
 
 echo "⏳ Waiting for North Prometheus IP..."
 while true; do
-  NORTH_PROM_IP=$(KUBECONFIG="$NORTH_KUBECONFIG" kubectl get svc prometheus-public -n "$NAMESPACE" -o jsonpath="{.status.loadBalancer.ingress[0].ip}" || echo "")
+  NORTH_PROM_IP=$(KUBECONFIG="$NORTH_KUBECONFIG" kubectl get svc prometheus-public -n "$NAMESPACE" -o jsonpath="{.status.loadBalancer.ingress[0].hostname}" || echo "")
   if [ ! -z "$NORTH_PROM_IP" ]; then break; fi
   sleep 5
 done
@@ -98,6 +111,6 @@ KUBECONFIG="$WEST_KUBECONFIG" kubectl rollout restart deployment prometheus-graf
 
 echo "✨ Layer 2 Monitoring Deployed Successfully!"
 echo "------------------------------------------------"
-GRAFANA_IP=$(KUBECONFIG="$WEST_KUBECONFIG" kubectl get svc grafana-public -n "$NAMESPACE" -o jsonpath='{.status.loadBalancer.ingress[0].ip}' || echo "PENDING")
+GRAFANA_IP=$(KUBECONFIG="$WEST_KUBECONFIG" kubectl get svc grafana-public -n "$NAMESPACE" -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' || echo "PENDING")
 echo "Grafana URL: http://$GRAFANA_IP"
 echo "Password: admin"

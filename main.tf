@@ -1,105 +1,391 @@
-provider "google" {
-  project = var.project_id
-  region  = var.region_west
+provider "aws" {
+  region = var.region_west
 }
 
-data "google_client_config" "default" {}
+provider "aws" {
+  alias  = "north"
+  region = var.region_north
+}
 
-resource "google_compute_firewall" "allow_istio_cross_cluster" {
-  name    = "allow-istio-cross-cluster"
-  network = "default"
+data "aws_eks_cluster" "west" {
+  name = aws_eks_cluster.west.name
+}
 
-  allow {
-    protocol = "tcp"
-    ports    = ["80", "443", "15443", "15021", "15012", "15017", "15010"]
+data "aws_eks_cluster_auth" "west" {
+  name = aws_eks_cluster.west.name
+}
+
+data "aws_eks_cluster" "north" {
+  provider = aws.north
+  name     = aws_eks_cluster.north.name
+}
+
+data "aws_eks_cluster_auth" "north" {
+  provider = aws.north
+  name     = aws_eks_cluster.north.name
+}
+
+data "aws_vpc" "west" {
+  default = true
+}
+
+data "aws_subnets" "west" {
+  filter {
+    name   = "vpc-id"
+    values = [data.aws_vpc.west.id]
   }
+}
 
-  source_ranges = ["0.0.0.0/0"]
+data "aws_vpc" "north" {
+  provider = aws.north
+  default  = true
+}
+
+data "aws_subnets" "north" {
+  provider = aws.north
+  filter {
+    name   = "vpc-id"
+    values = [data.aws_vpc.north.id]
+  }
+}
+
+resource "aws_security_group" "istio_cross_cluster_west" {
+  name        = "istio-cross-cluster-west"
+  description = "Allow Istio cross-cluster traffic"
+  vpc_id      = data.aws_vpc.west.id
+
+  ingress {
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+  ingress {
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+  ingress {
+    from_port   = 15010
+    to_port     = 15010
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+  ingress {
+    from_port   = 15012
+    to_port     = 15012
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+  ingress {
+    from_port   = 15017
+    to_port     = 15017
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+  ingress {
+    from_port   = 15021
+    to_port     = 15021
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+  ingress {
+    from_port   = 15443
+    to_port     = 15443
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+}
+
+resource "aws_security_group" "istio_cross_cluster_north" {
+  provider    = aws.north
+  name        = "istio-cross-cluster-north"
+  description = "Allow Istio cross-cluster traffic"
+  vpc_id      = data.aws_vpc.north.id
+
+  ingress {
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+  ingress {
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+  ingress {
+    from_port   = 15010
+    to_port     = 15010
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+  ingress {
+    from_port   = 15012
+    to_port     = 15012
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+  ingress {
+    from_port   = 15017
+    to_port     = 15017
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+  ingress {
+    from_port   = 15021
+    to_port     = 15021
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+  ingress {
+    from_port   = 15443
+    to_port     = 15443
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
 }
 
 ############################################
-# GKE clusters
+# IAM roles for EKS (shared between clusters)
 ############################################
 
-resource "google_container_cluster" "west" {
+resource "aws_iam_role" "eks_cluster_role" {
+  name = "eks-cluster-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Action    = "sts:AssumeRole"
+      Effect    = "Allow"
+      Principal = { Service = "eks.amazonaws.com" }
+    }]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "eks_cluster_policy" {
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEKSClusterPolicy"
+  role       = aws_iam_role.eks_cluster_role.name
+}
+
+resource "aws_iam_role" "eks_node_role" {
+  name = "eks-node-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Action    = "sts:AssumeRole"
+      Effect    = "Allow"
+      Principal = { Service = "ec2.amazonaws.com" }
+    }]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "eks_worker_node_policy" {
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy"
+  role       = aws_iam_role.eks_node_role.name
+}
+
+resource "aws_iam_role_policy_attachment" "eks_cni_policy" {
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy"
+  role       = aws_iam_role.eks_node_role.name
+}
+
+resource "aws_iam_role_policy_attachment" "eks_ecr_readonly" {
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
+  role       = aws_iam_role.eks_node_role.name
+}
+
+############################################
+# EKS clusters
+############################################
+
+resource "aws_eks_cluster" "west" {
   name     = var.cluster_west_name
-  location = var.region_west
+  role_arn = aws_iam_role.eks_cluster_role.arn
+  version  = "1.31"
 
-  node_locations = var.zones_west
-
-  release_channel {
-    channel = var.gke_release_channel
+  vpc_config {
+    subnet_ids         = data.aws_subnets.west.ids
+    security_group_ids = [aws_security_group.istio_cross_cluster_west.id]
   }
 
-  # VPC-native / IP aliasing
-  ip_allocation_policy {}
+  kubernetes_network_config {
+    service_ipv4_cidr = "172.20.0.0/16"
+  }
 
-  remove_default_node_pool = true
-  initial_node_count       = 1
-  deletion_protection      = false
+  depends_on = [
+    aws_iam_role_policy_attachment.eks_cluster_policy
+  ]
 }
 
-resource "google_container_node_pool" "west_nodes" {
-  name     = "${var.cluster_west_name}-np"
-  cluster  = google_container_cluster.west.name
-  location = google_container_cluster.west.location
+resource "aws_eks_node_group" "west" {
+  cluster_name    = aws_eks_cluster.west.name
+  node_group_name = "${var.cluster_west_name}-ng"
+  node_role_arn   = aws_iam_role.eks_node_role.arn
+  subnet_ids      = data.aws_subnets.west.ids
+  instance_types  = [var.node_machine_type]
 
-  node_locations = var.zones_west
-  node_count     = var.nodes_per_zone
-
-  autoscaling {
-    min_node_count = var.min_nodes
-    max_node_count = var.max_nodes
+  scaling_config {
+    desired_size = var.nodes_per_zone
+    min_size     = var.min_nodes
+    max_size     = var.max_nodes
   }
 
-  node_config {
-    machine_type = var.node_machine_type
-    disk_size_gb = var.node_disk_gb
-
-    oauth_scopes = [
-      "https://www.googleapis.com/auth/cloud-platform"
-    ]
-  }
+  depends_on = [
+    aws_iam_role_policy_attachment.eks_worker_node_policy,
+    aws_iam_role_policy_attachment.eks_cni_policy,
+    aws_iam_role_policy_attachment.eks_ecr_readonly,
+  ]
 }
 
-resource "google_container_cluster" "north" {
+resource "aws_eks_cluster" "north" {
+  provider = aws.north
   name     = var.cluster_north_name
-  location = var.region_north
+  role_arn = aws_iam_role.eks_cluster_role.arn
+  version  = "1.31"
 
-  node_locations = var.zones_north
-
-  release_channel {
-    channel = var.gke_release_channel
+  vpc_config {
+    subnet_ids         = data.aws_subnets.north.ids
+    security_group_ids = [aws_security_group.istio_cross_cluster_north.id]
   }
 
-  ip_allocation_policy {}
+  kubernetes_network_config {
+    service_ipv4_cidr = "172.20.0.0/16"
+  }
 
-  remove_default_node_pool = true
-  initial_node_count       = 1
-  deletion_protection      = false
+  depends_on = [
+    aws_iam_role_policy_attachment.eks_cluster_policy
+  ]
 }
 
-resource "google_container_node_pool" "north_nodes" {
-  name     = "${var.cluster_north_name}-np"
-  cluster  = google_container_cluster.north.name
-  location = google_container_cluster.north.location
+resource "aws_eks_node_group" "north" {
+  provider        = aws.north
+  cluster_name    = aws_eks_cluster.north.name
+  node_group_name = "${var.cluster_north_name}-ng"
+  node_role_arn   = aws_iam_role.eks_node_role.arn
+  subnet_ids      = data.aws_subnets.north.ids
+  instance_types  = [var.node_machine_type]
 
-  node_locations = var.zones_north
-  node_count     = var.nodes_per_zone
-
-  autoscaling {
-    min_node_count = var.min_nodes
-    max_node_count = var.max_nodes
+  scaling_config {
+    desired_size = var.nodes_per_zone
+    min_size     = var.min_nodes
+    max_size     = var.max_nodes
   }
 
-  node_config {
-    machine_type = var.node_machine_type
-    disk_size_gb = var.node_disk_gb
+  depends_on = [
+    aws_iam_role_policy_attachment.eks_worker_node_policy,
+    aws_iam_role_policy_attachment.eks_cni_policy,
+    aws_iam_role_policy_attachment.eks_ecr_readonly,
+  ]
+}
 
-    oauth_scopes = [
-      "https://www.googleapis.com/auth/cloud-platform"
-    ]
-  }
+############################################
+# IRSA: OIDC providers + EBS CSI driver
+############################################
+
+data "tls_certificate" "eks_west" {
+  url = data.aws_eks_cluster.west.identity[0].oidc[0].issuer
+}
+
+data "tls_certificate" "eks_north" {
+  url = data.aws_eks_cluster.north.identity[0].oidc[0].issuer
+}
+
+resource "aws_iam_openid_connect_provider" "west" {
+  client_id_list  = ["sts.amazonaws.com"]
+  thumbprint_list = [data.tls_certificate.eks_west.certificates[0].sha1_fingerprint]
+  url             = data.aws_eks_cluster.west.identity[0].oidc[0].issuer
+}
+
+resource "aws_iam_openid_connect_provider" "north" {
+  provider        = aws.north
+  client_id_list  = ["sts.amazonaws.com"]
+  thumbprint_list = [data.tls_certificate.eks_north.certificates[0].sha1_fingerprint]
+  url             = data.aws_eks_cluster.north.identity[0].oidc[0].issuer
+}
+
+resource "aws_iam_role" "ebs_csi_role_west" {
+  name = "eks-ebs-csi-west"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Action = "sts:AssumeRoleWithWebIdentity"
+      Effect = "Allow"
+      Principal = {
+        Federated = aws_iam_openid_connect_provider.west.arn
+      }
+      Condition = {
+        StringEquals = {
+          "${replace(aws_iam_openid_connect_provider.west.url, "https://", "")}:aud" = "sts.amazonaws.com"
+          "${replace(aws_iam_openid_connect_provider.west.url, "https://", "")}:sub" = "system:serviceaccount:kube-system:ebs-csi-controller-sa"
+        }
+      }
+    }]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "ebs_csi_policy_west" {
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy"
+  role       = aws_iam_role.ebs_csi_role_west.name
+}
+
+resource "aws_iam_role" "ebs_csi_role_north" {
+  name = "eks-ebs-csi-north"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Action = "sts:AssumeRoleWithWebIdentity"
+      Effect = "Allow"
+      Principal = {
+        Federated = aws_iam_openid_connect_provider.north.arn
+      }
+      Condition = {
+        StringEquals = {
+          "${replace(aws_iam_openid_connect_provider.north.url, "https://", "")}:aud" = "sts.amazonaws.com"
+          "${replace(aws_iam_openid_connect_provider.north.url, "https://", "")}:sub" = "system:serviceaccount:kube-system:ebs-csi-controller-sa"
+        }
+      }
+    }]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "ebs_csi_policy_north" {
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy"
+  role       = aws_iam_role.ebs_csi_role_north.name
+}
+
+resource "aws_eks_addon" "ebs_csi_west" {
+  cluster_name             = aws_eks_cluster.west.name
+  addon_name               = "aws-ebs-csi-driver"
+  service_account_role_arn = aws_iam_role.ebs_csi_role_west.arn
+
+  depends_on = [aws_eks_node_group.west]
+}
+
+resource "aws_eks_addon" "ebs_csi_north" {
+  provider                 = aws.north
+  cluster_name             = aws_eks_cluster.north.name
+  addon_name               = "aws-ebs-csi-driver"
+  service_account_role_arn = aws_iam_role.ebs_csi_role_north.arn
+
+  depends_on = [aws_eks_node_group.north]
 }
 
 ############################################
@@ -107,11 +393,11 @@ resource "google_container_node_pool" "north_nodes" {
 ############################################
 
 locals {
-  west_host  = "https://${google_container_cluster.west.endpoint}"
-  north_host = "https://${google_container_cluster.north.endpoint}"
+  west_host  = data.aws_eks_cluster.west.endpoint
+  north_host = data.aws_eks_cluster.north.endpoint
 
-  west_ca  = base64decode(google_container_cluster.west.master_auth[0].cluster_ca_certificate)
-  north_ca = base64decode(google_container_cluster.north.master_auth[0].cluster_ca_certificate)
+  west_ca  = base64decode(data.aws_eks_cluster.west.certificate_authority[0].data)
+  north_ca = base64decode(data.aws_eks_cluster.north.certificate_authority[0].data)
 }
 
 ############################################
@@ -123,14 +409,14 @@ provider "kubernetes" {
   alias                  = "west"
   host                   = local.west_host
   cluster_ca_certificate = local.west_ca
-  token                  = data.google_client_config.default.access_token
+  token                  = data.aws_eks_cluster_auth.west.token
 }
 
 provider "kubernetes" {
   alias                  = "north"
   host                   = local.north_host
   cluster_ca_certificate = local.north_ca
-  token                  = data.google_client_config.default.access_token
+  token                  = data.aws_eks_cluster_auth.north.token
 }
 
 ############################################
@@ -143,7 +429,7 @@ provider "helm" {
   kubernetes = {
     host                   = local.west_host
     cluster_ca_certificate = local.west_ca
-    token                  = data.google_client_config.default.access_token
+    token                  = data.aws_eks_cluster_auth.west.token
   }
 }
 
@@ -153,7 +439,7 @@ provider "helm" {
   kubernetes = {
     host                   = local.north_host
     cluster_ca_certificate = local.north_ca
-    token                  = data.google_client_config.default.access_token
+    token                  = data.aws_eks_cluster_auth.north.token
   }
 }
 
@@ -164,28 +450,28 @@ provider "helm" {
 resource "local_file" "kubeconfig_west" {
   filename = "${path.module}/.generated/kubeconfig-${var.cluster_west_name}.yaml"
   content = templatefile("${path.module}/templates/kubeconfig", {
-    ca           = google_container_cluster.west.master_auth[0].cluster_ca_certificate
+    ca           = data.aws_eks_cluster.west.certificate_authority[0].data
     server       = local.west_host
     cluster_name = var.cluster_west_name
-    token        = data.google_client_config.default.access_token
+    region       = var.region_west
   })
 
   depends_on = [
-    google_container_node_pool.west_nodes
+    aws_eks_node_group.west
   ]
 }
 
 resource "local_file" "kubeconfig_north" {
   filename = "${path.module}/.generated/kubeconfig-${var.cluster_north_name}.yaml"
   content = templatefile("${path.module}/templates/kubeconfig", {
-    ca           = google_container_cluster.north.master_auth[0].cluster_ca_certificate
+    ca           = data.aws_eks_cluster.north.certificate_authority[0].data
     server       = local.north_host
     cluster_name = var.cluster_north_name
-    token        = data.google_client_config.default.access_token
+    region       = var.region_north
   })
 
   depends_on = [
-    google_container_node_pool.north_nodes
+    aws_eks_node_group.north
   ]
 }
 
@@ -649,8 +935,8 @@ resource "null_resource" "remote_secret_west_to_north" {
 
   triggers = {
     istio_version  = var.istio_version
-    west_endpoint  = google_container_cluster.west.endpoint
-    north_endpoint = google_container_cluster.north.endpoint
+    west_endpoint  = aws_eks_cluster.west.endpoint
+    north_endpoint = aws_eks_cluster.north.endpoint
   }
 
   provisioner "local-exec" {
@@ -670,8 +956,8 @@ resource "null_resource" "remote_secret_north_to_west" {
 
   triggers = {
     istio_version  = var.istio_version
-    west_endpoint  = google_container_cluster.west.endpoint
-    north_endpoint = google_container_cluster.north.endpoint
+    west_endpoint  = aws_eks_cluster.west.endpoint
+    north_endpoint = aws_eks_cluster.north.endpoint
   }
 
   provisioner "local-exec" {

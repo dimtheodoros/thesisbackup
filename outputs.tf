@@ -7,11 +7,11 @@ output "north_cluster_name" {
 }
 
 output "app_url_belgium" {
-  value = "http://${data.kubernetes_service.ingress_west.status[0].load_balancer[0].ingress[0].ip}"
+  value = "http://${data.kubernetes_service.ingress_west.status[0].load_balancer[0].ingress[0].hostname}"
 }
 
 output "app_url_finland" {
-  value = "http://${data.kubernetes_service.ingress_north.status[0].load_balancer[0].ingress[0].ip}"
+  value = "http://${data.kubernetes_service.ingress_north.status[0].load_balancer[0].ingress[0].hostname}"
 }
 
 output "grafana_url" {

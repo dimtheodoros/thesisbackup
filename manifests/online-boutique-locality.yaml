@@ -10,10 +10,10 @@ spec:
       localityLbSetting:
         enabled: true
         failover:
-        - from: europe-west1
-          to: europe-north2
-        - from: europe-north2
-          to: europe-west1
+        - from: eu-west-1
+          to: eu-north-1
+        - from: eu-north-1
+          to: eu-west-1
     outlierDetection:
       consecutive5xxErrors: 1
       interval: 1s
@@ -34,10 +34,10 @@ spec:
       localityLbSetting:
         enabled: true
         failover:
-        - from: europe-west1
-          to: europe-north2
-        - from: europe-north2
-          to: europe-west1
+        - from: eu-west-1
+          to: eu-north-1
+        - from: eu-north-1
+          to: eu-west-1
     outlierDetection:
       consecutive5xxErrors: 1
       interval: 1s
@@ -58,10 +58,10 @@ spec:
       localityLbSetting:
         enabled: true
         failover:
-        - from: europe-west1
-          to: europe-north2
-        - from: europe-north2
-          to: europe-west1
+        - from: eu-west-1
+          to: eu-north-1
+        - from: eu-north-1
+          to: eu-west-1
     outlierDetection:
       consecutive5xxErrors: 1
       interval: 1s
@@ -82,10 +82,10 @@ spec:
       localityLbSetting:
         enabled: true
         failover:
-        - from: europe-west1
-          to: europe-north2
-        - from: europe-north2
-          to: europe-west1
+        - from: eu-west-1
+          to: eu-north-1
+        - from: eu-north-1
+          to: eu-west-1
     outlierDetection:
       consecutive5xxErrors: 1
       interval: 1s
@@ -106,10 +106,10 @@ spec:
       localityLbSetting:
         enabled: true
         failover:
-        - from: europe-west1
-          to: europe-north2
-        - from: europe-north2
-          to: europe-west1
+        - from: eu-west-1
+          to: eu-north-1
+        - from: eu-north-1
+          to: eu-west-1
     outlierDetection:
       consecutive5xxErrors: 1
       interval: 1s
@@ -130,10 +130,10 @@ spec:
       localityLbSetting:
         enabled: true
         failover:
-        - from: europe-west1
-          to: europe-north2
-        - from: europe-north2
-          to: europe-west1
+        - from: eu-west-1
+          to: eu-north-1
+        - from: eu-north-1
+          to: eu-west-1
     outlierDetection:
       consecutive5xxErrors: 1
       interval: 1s
@@ -154,10 +154,10 @@ spec:
       localityLbSetting:
         enabled: true
         failover:
-        - from: europe-west1
-          to: europe-north2
-        - from: europe-north2
-          to: europe-west1
+        - from: eu-west-1
+          to: eu-north-1
+        - from: eu-north-1
+          to: eu-west-1
     outlierDetection:
       consecutive5xxErrors: 1
       interval: 1s
@@ -178,10 +178,10 @@ spec:
       localityLbSetting:
         enabled: true
         failover:
-        - from: europe-west1
-          to: europe-north2
-        - from: europe-north2
-          to: europe-west1
+        - from: eu-west-1
+          to: eu-north-1
+        - from: eu-north-1
+          to: eu-west-1
     outlierDetection:
       consecutive5xxErrors: 1
       interval: 1s
@@ -202,10 +202,10 @@ spec:
       localityLbSetting:
         enabled: true
         failover:
-        - from: europe-west1
-          to: europe-north2
-        - from: europe-north2
-          to: europe-west1
+        - from: eu-west-1
+          to: eu-north-1
+        - from: eu-north-1
+          to: eu-west-1
     outlierDetection:
       consecutive5xxErrors: 1
       interval: 1s
@@ -226,10 +226,10 @@ spec:
       localityLbSetting:
         enabled: true
         failover:
-        - from: europe-west1
-          to: europe-north2
-        - from: europe-north2
-          to: europe-west1
+        - from: eu-west-1
+          to: eu-north-1
+        - from: eu-north-1
+          to: eu-west-1
     outlierDetection:
       consecutive5xxErrors: 1
       interval: 1s
@@ -250,10 +250,10 @@ spec:
       localityLbSetting:
         enabled: true
         failover:
-        - from: europe-west1
-          to: europe-north2
-        - from: europe-north2
-          to: europe-west1
+        - from: eu-west-1
+          to: eu-north-1
+        - from: eu-north-1
+          to: eu-west-1
     outlierDetection:
       consecutive5xxErrors: 1
       interval: 1s
