@@ -1,0 +1,39 @@
+---
+# All boutique services replicated to both clusters (Duplicated mode)
+apiVersion: policy.karmada.io/v1alpha1
+kind: PropagationPolicy
+metadata:
+  name: boutique-propagation
+  namespace: online-boutique
+spec:
+  resourceSelectors:
+  - apiVersion: apps/v1
+    kind: Deployment
+  - apiVersion: v1
+    kind: Service
+  - apiVersion: v1
+    kind: ServiceAccount
+  placement:
+    clusterAffinity:
+      clusterNames:
+      - eu-west
+      - eu-north
+---
+# Loadgenerator to west only (name-specific → higher priority than boutique-propagation)
+apiVersion: policy.karmada.io/v1alpha1
+kind: PropagationPolicy
+metadata:
+  name: loadgenerator-west
+  namespace: online-boutique
+spec:
+  resourceSelectors:
+  - apiVersion: apps/v1
+    kind: Deployment
+    name: loadgenerator
+  - apiVersion: v1
+    kind: Service
+    name: loadgenerator
+  placement:
+    clusterAffinity:
+      clusterNames:
+      - eu-west
