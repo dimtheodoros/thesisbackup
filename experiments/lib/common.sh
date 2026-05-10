@@ -42,7 +42,7 @@ check_prerequisites() {
   [ -f "$WEST_KUBECONFIG" ]    || { log_info "ERROR: $WEST_KUBECONFIG not found"; missing=1; }
   [ -f "$NORTH_KUBECONFIG" ]   || { log_info "ERROR: $NORTH_KUBECONFIG not found"; missing=1; }
   [ -f "$KARMADA_KUBECONFIG" ] || { log_info "ERROR: $KARMADA_KUBECONFIG not found"; missing=1; }
-  [ "$missing" -eq 1 ] && die "Prerequisites not met. Run deploy-karmada.sh and deploy-monitoring.sh first."
+  if [ "$missing" -eq 1 ]; then die "Prerequisites not met. Run deploy-karmada.sh and deploy-monitoring.sh first."; fi
 }
 
 # ── Port management ───────────────────────────────────────────────────────────
@@ -108,13 +108,15 @@ prom_query() {
 # ── CSV metrics collection ────────────────────────────────────────────────────
 
 write_csv_header() {
-  printf 'timestamp,phase,west_rps,north_rps,west_p99_ms,north_p99_ms,west_error_rate,north_error_rate,west_frontend_replicas,north_frontend_replicas,loadgenerator_users\n' \
+  printf 'timestamp,phase,west_rps,north_rps,west_p99_ms,north_p99_ms,west_error_rate,north_error_rate,west_frontend_replicas,north_frontend_replicas,west_adservice_replicas,north_adservice_replicas,west_currencyservice_replicas,north_currencyservice_replicas,west_productcatalogservice_replicas,north_productcatalogservice_replicas,loadgenerator_users\n' \
     > "$1"
 }
 
 collect_metrics_row() {
   local filepath="$1" phase="$2"
-  local ts west_rps north_rps west_p99 north_p99 west_err north_err west_rep north_rep lg_users
+  local ts west_rps north_rps west_p99 north_p99 west_err north_err \
+        west_rep north_rep west_ad_rep north_ad_rep \
+        west_cur_rep north_cur_rep west_pcs_rep north_pcs_rep lg_users
   ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
   west_rps=$(prom_query "$WEST_PROM_URL" \
@@ -137,18 +139,36 @@ collect_metrics_row() {
   north_rep=$(prom_query "$NORTH_PROM_URL" \
     'kube_deployment_status_replicas_available{namespace="online-boutique",deployment="frontend"}')
 
+  west_ad_rep=$(prom_query "$WEST_PROM_URL" \
+    'kube_deployment_status_replicas_available{namespace="online-boutique",deployment="adservice"}')
+  north_ad_rep=$(prom_query "$NORTH_PROM_URL" \
+    'kube_deployment_status_replicas_available{namespace="online-boutique",deployment="adservice"}')
+
+  west_cur_rep=$(prom_query "$WEST_PROM_URL" \
+    'kube_deployment_status_replicas_available{namespace="online-boutique",deployment="currencyservice"}')
+  north_cur_rep=$(prom_query "$NORTH_PROM_URL" \
+    'kube_deployment_status_replicas_available{namespace="online-boutique",deployment="currencyservice"}')
+
+  west_pcs_rep=$(prom_query "$WEST_PROM_URL" \
+    'kube_deployment_status_replicas_available{namespace="online-boutique",deployment="productcatalogservice"}')
+  north_pcs_rep=$(prom_query "$NORTH_PROM_URL" \
+    'kube_deployment_status_replicas_available{namespace="online-boutique",deployment="productcatalogservice"}')
+
   # Read desired USERS env var from the running loadgenerator pod
   lg_users=$(KUBECONFIG="$WEST_KUBECONFIG" kubectl exec -n "$NAMESPACE" \
     "$(KUBECONFIG="$WEST_KUBECONFIG" kubectl get pod -n "$NAMESPACE" -l app=loadgenerator \
       -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)" \
     -- printenv USERS 2>/dev/null || echo "NaN")
 
-  printf '%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n' \
+  printf '%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n' \
     "$ts" "$phase" "$west_rps" "$north_rps" "$west_p99" "$north_p99" \
-    "$west_err" "$north_err" "$west_rep" "$north_rep" "$lg_users" \
+    "$west_err" "$north_err" "$west_rep" "$north_rep" \
+    "$west_ad_rep" "$north_ad_rep" \
+    "$west_cur_rep" "$north_cur_rep" "$west_pcs_rep" "$north_pcs_rep" \
+    "$lg_users" \
     >> "$filepath"
 
-  log_info "  W-RPS=${west_rps} N-RPS=${north_rps} | W-P99=${west_p99}ms N-P99=${north_p99}ms | W-rep=${west_rep} N-rep=${north_rep}"
+  log_info "  W-RPS=${west_rps} N-RPS=${north_rps} | W-P99=${west_p99}ms N-P99=${north_p99}ms | W-fe=${west_rep} N-fe=${north_rep} | W-cur=${west_cur_rep} N-cur=${north_cur_rep} | W-pcs=${west_pcs_rep} N-pcs=${north_pcs_rep}"
 }
 
 collect_metrics_loop() {
@@ -170,10 +190,10 @@ wait_for_deployments_ready() {
     local uw en
     uw=$(KUBECONFIG="$WEST_KUBECONFIG" kubectl get deployments -n "$NAMESPACE" \
       -o jsonpath='{range .items[*]}{.status.unavailableReplicas}{"\n"}{end}' 2>/dev/null \
-      | grep -v "^$" | grep -v "^0$" | wc -l | tr -d ' ')
+      | (grep -vc "^0*$" || true))
     en=$(KUBECONFIG="$NORTH_KUBECONFIG" kubectl get deployments -n "$NAMESPACE" \
       -o jsonpath='{range .items[*]}{.status.unavailableReplicas}{"\n"}{end}' 2>/dev/null \
-      | grep -v "^$" | grep -v "^0$" | wc -l | tr -d ' ')
+      | (grep -vc "^0*$" || true))
     if [ "${uw:-0}" -eq 0 ] && [ "${en:-0}" -eq 0 ]; then
       log_info "All deployments ready."; return 0
     fi
@@ -185,9 +205,10 @@ wait_for_deployments_ready() {
 # ── Load control ──────────────────────────────────────────────────────────────
 
 set_load_users() {
-  local users="$1"
-  log_info "Setting loadgenerator to $users concurrent users..."
+  local users="$1" spawn_rate
+  spawn_rate="$((users / 5 > 0 ? users / 5 : 1))"
+  log_info "Setting loadgenerator to $users concurrent users (both clusters)..."
   KUBECONFIG="$KARMADA_KUBECONFIG" kubectl set env deployment/loadgenerator \
-    -n "$NAMESPACE" USERS="$users" SPAWN_RATE="$((users / 5 > 0 ? users / 5 : 1))"
+    -n "$NAMESPACE" USERS="$users" SPAWN_RATE="$spawn_rate"
   sleep 20
 }

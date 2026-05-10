@@ -42,7 +42,6 @@ KUBECONFIG="$KARMADA_KUBECONFIG" kubectl delete -f manifests/karmada/propagation
 echo "🗑️ Removing boutique resources from Karmada..."
 KUBECONFIG="$KARMADA_KUBECONFIG" kubectl delete -f .generated/boutique-resources.yaml --ignore-not-found || true
 KUBECONFIG="$KARMADA_KUBECONFIG" kubectl delete -f .generated/loadgenerator.yaml --ignore-not-found || true
-KUBECONFIG="$KARMADA_KUBECONFIG" kubectl delete -f .generated/loadgenerator-north.yaml --ignore-not-found || true
 
 # 5. Unjoin member clusters
 echo "🔓 Unjoining eu-west..."

@@ -1,8 +1,8 @@
 #!/bin/bash
 # Scenario 3 — Load Ramp with FederatedHPA
-# Deploys a FederatedHPA targeting frontend CPU at 50% utilisation.
+# Deploys FederatedHPAs (60% CPU) for all boutique services except cartservice.
 # Ramps load via the loadgenerator USERS env var: 10 → 50 → 150 → 300 → 600 → 10.
-# FederatedHPA automatically scales frontend replicas in response.
+# FederatedHPA automatically scales each service across both clusters in response.
 # In Duplicated mode each cluster gets the full scaled replica count.
 #
 # Usage: bash experiments/scenario-3-load-ramp-fhpa.sh
@@ -22,9 +22,9 @@ cleanup() {
       -n "$NAMESPACE" USERS="10" SPAWN_RATE="1" 2>/dev/null || true
   fi
   if [ "$FHPA_APPLIED" = "true" ]; then
-    log_info "Removing FederatedHPA..."
-    KUBECONFIG="$KARMADA_KUBECONFIG" kubectl delete federatedhpa frontend-fhpa \
-      -n "$NAMESPACE" --ignore-not-found 2>/dev/null || true
+    log_info "Removing FederatedHPAs..."
+    KUBECONFIG="$KARMADA_KUBECONFIG" kubectl delete federatedhpa \
+      -n "$NAMESPACE" --all 2>/dev/null || true
   fi
   stop_west_prometheus_portforward
   stop_karmada_portforward
@@ -35,7 +35,7 @@ trap cleanup EXIT INT TERM
 check_prerequisites
 start_karmada_portforward
 
-log_phase "DEPLOY_FHPA" "Applying FederatedHPA for frontend (CPU target: 50%)"
+log_phase "DEPLOY_FHPA" "Applying FederatedHPAs for all services (CPU target: 60%)"
 KUBECONFIG="$KARMADA_KUBECONFIG" kubectl apply \
   -f experiments/manifests/scenario3-federated-hpa.yaml
 FHPA_APPLIED=true

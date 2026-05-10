@@ -682,6 +682,46 @@ EOT
 }
 
 ############################################
+# metrics-server
+############################################
+
+resource "helm_release" "metrics_server_west" {
+  provider  = helm.west
+  name      = "metrics-server"
+  namespace = "kube-system"
+
+  repository = "https://kubernetes-sigs.github.io/metrics-server/"
+  chart      = "metrics-server"
+  version    = "3.12.1"
+
+  values = [<<-EOT
+    args:
+      - --kubelet-insecure-tls
+    EOT
+  ]
+
+  depends_on = [aws_eks_node_group.west]
+}
+
+resource "helm_release" "metrics_server_north" {
+  provider  = helm.north
+  name      = "metrics-server"
+  namespace = "kube-system"
+
+  repository = "https://kubernetes-sigs.github.io/metrics-server/"
+  chart      = "metrics-server"
+  version    = "3.12.1"
+
+  values = [<<-EOT
+    args:
+      - --kubelet-insecure-tls
+    EOT
+  ]
+
+  depends_on = [aws_eks_node_group.north]
+}
+
+############################################
 # Istio install via Helm: base + istiod
 ############################################
 

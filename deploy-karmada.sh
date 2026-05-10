@@ -60,12 +60,12 @@ KUBECONFIG="$KARMADA_KUBECONFIG" kubectl config unset \
 echo "🔗 Joining eu-west..."
 karmadactl join eu-west \
   --kubeconfig="$KARMADA_KUBECONFIG" \
-  --cluster-kubeconfig="$WEST_KUBECONFIG"
+  --cluster-kubeconfig="$WEST_KUBECONFIG" || true
 
 echo "🔗 Joining eu-north..."
 karmadactl join eu-north \
   --kubeconfig="$KARMADA_KUBECONFIG" \
-  --cluster-kubeconfig="$NORTH_KUBECONFIG"
+  --cluster-kubeconfig="$NORTH_KUBECONFIG" || true
 
 # 6. Create online-boutique namespace in the Karmada API server
 echo "📁 Creating namespace in Karmada..."
@@ -80,46 +80,20 @@ helm template online-boutique "$CHART_PATH" \
   --set loadGenerator.create=false \
   > .generated/boutique-resources.yaml
 
-# Render loadgenerator separately — PropagationPolicy targets eu-west only
-# Target the external Istio ingress LB so traffic exercises the full ingress path
-WEST_LB_HOST=$(terraform output -raw app_url_belgium 2>/dev/null | sed 's|http://||' || echo "")
-LOADGEN_EXTRA_ARGS=()
-if [ -n "$WEST_LB_HOST" ]; then
-  echo "🌐 Loadgenerator targeting external LB: $WEST_LB_HOST"
-  LOADGEN_EXTRA_ARGS=(--set "loadGenerator.frontendAddr=${WEST_LB_HOST}")
-else
-  echo "⚠️  Could not read west LB hostname; loadgenerator will target internal frontend service"
-fi
+# Render loadgenerator — targets internal frontend service so boutique-propagation
+# pushes it to both clusters; each pod resolves "frontend" via local cluster DNS
 helm template online-boutique "$CHART_PATH" \
   --namespace "$NAMESPACE" \
   --set loadGenerator.create=true \
-  "${LOADGEN_EXTRA_ARGS[@]}" \
+  --set loadGenerator.frontendAddr=frontend:80 \
   --show-only templates/loadgenerator.yaml \
   > .generated/loadgenerator.yaml
-
-# Render loadgenerator-north — PropagationPolicy targets eu-north only
-NORTH_LB_HOST=$(terraform output -raw app_url_finland 2>/dev/null | sed 's|http://||' || echo "")
-LOADGEN_NORTH_ARGS=()
-if [ -n "$NORTH_LB_HOST" ]; then
-  echo "🌐 Loadgenerator-north targeting external LB: $NORTH_LB_HOST"
-  LOADGEN_NORTH_ARGS=(--set "loadGenerator.frontendAddr=${NORTH_LB_HOST}")
-else
-  echo "⚠️  Could not read north LB hostname; loadgenerator-north will target internal frontend service"
-fi
-helm template online-boutique "$CHART_PATH" \
-  --namespace "$NAMESPACE" \
-  --set loadGenerator.create=true \
-  --set loadGenerator.name=loadgenerator-north \
-  "${LOADGEN_NORTH_ARGS[@]}" \
-  --show-only templates/loadgenerator.yaml \
-  > .generated/loadgenerator-north.yaml
 
 echo "📤 Applying boutique resources to Karmada API server..."
 KUBECONFIG="$KARMADA_KUBECONFIG" kubectl apply -f .generated/boutique-resources.yaml
 KUBECONFIG="$KARMADA_KUBECONFIG" kubectl apply -f .generated/loadgenerator.yaml
-KUBECONFIG="$KARMADA_KUBECONFIG" kubectl apply -f .generated/loadgenerator-north.yaml
 
-# 8. Apply PropagationPolicies (boutique → both clusters, loadgenerator → west only)
+# 8. Apply PropagationPolicies (boutique → both clusters)
 echo "📋 Applying PropagationPolicies..."
 KUBECONFIG="$KARMADA_KUBECONFIG" kubectl apply -f manifests/karmada/propagation-policy.yaml
 
@@ -132,7 +106,68 @@ KUBECONFIG="$NORTH_KUBECONFIG" kubectl apply -f manifests/online-boutique-ingres
 KUBECONFIG="$WEST_KUBECONFIG"  kubectl apply -f manifests/online-boutique-ingress-virtualservice.yaml
 KUBECONFIG="$NORTH_KUBECONFIG" kubectl apply -f manifests/online-boutique-ingress-virtualservice.yaml
 
-# 10. Stop port-forward; expose karmada-apiserver as LoadBalancer for external access
+# 10. Enable karmada-metrics-adapter so FederatedHPA can collect cross-cluster CPU metrics
+echo "📊 Enabling karmada-metrics-adapter..."
+# The addon expects a secret named karmada-metrics-adapter-config with key "karmada.config".
+# karmadactl init creates this automatically, but we use Helm, so we create it manually.
+# The server URL must be the in-cluster service DNS so the adapter can reach the Karmada API.
+ADAPTER_KC="/tmp/karmada-adapter-bootstrap.config"
+KUBECONFIG="$WEST_KUBECONFIG" kubectl get secret karmada-kubeconfig \
+  -n karmada-system -o jsonpath='{.data.kubeconfig}' | base64 -d > "$ADAPTER_KC"
+KUBECONFIG="$ADAPTER_KC" kubectl config set-cluster karmada-apiserver \
+  --server="https://karmada-apiserver.karmada-system.svc.cluster.local:5443" \
+  --insecure-skip-tls-verify=true
+KUBECONFIG="$ADAPTER_KC" kubectl config unset \
+  clusters.karmada-apiserver.certificate-authority-data 2>/dev/null || true
+
+KUBECONFIG="$WEST_KUBECONFIG" kubectl create secret generic karmada-metrics-adapter-config \
+  -n karmada-system --from-file=karmada.config="$ADAPTER_KC" \
+  --dry-run=client -o yaml | KUBECONFIG="$WEST_KUBECONFIG" kubectl apply -f -
+rm -f "$ADAPTER_KC"
+
+karmadactl addons enable karmada-metrics-adapter \
+  --kubeconfig="$WEST_KUBECONFIG" \
+  --karmada-kubeconfig="$KARMADA_KUBECONFIG" \
+  --namespace karmada-system
+
+# Fix 1: karmada-cert has key "server-ca.crt" but the adapter expects "/etc/karmada/pki/ca.crt".
+# Patch the Deployment to remap the secret key to the expected filename.
+echo "🔧 Patching karmada-metrics-adapter cert volume..."
+KUBECONFIG="$WEST_KUBECONFIG" kubectl patch deployment karmada-metrics-adapter \
+  -n karmada-system --type=json -p='[{
+    "op": "replace",
+    "path": "/spec/template/spec/volumes/1",
+    "value": {
+      "name": "k8s-certs",
+      "secret": {
+        "defaultMode": 420,
+        "secretName": "karmada-cert",
+        "items": [
+          {"key": "server-ca.crt",         "path": "ca.crt"},
+          {"key": "karmada.crt",           "path": "karmada.crt"},
+          {"key": "karmada.key",           "path": "karmada.key"},
+          {"key": "front-proxy-ca.crt",    "path": "front-proxy-ca.crt"},
+          {"key": "front-proxy-client.crt","path": "front-proxy-client.crt"},
+          {"key": "front-proxy-client.key","path": "front-proxy-client.key"}
+        ]
+      }
+    }
+  }]'
+
+# Fix 2: karmadactl addons creates APIServices without insecureSkipTLSVerify.
+# The adapter's cert is signed by the karmada CA which the karmada-apiserver doesn't trust
+# unless TLS verification is disabled.
+echo "🔧 Patching metrics APIServices to skip TLS verification..."
+for api in v1beta1.metrics.k8s.io v1beta1.custom.metrics.k8s.io v1beta2.custom.metrics.k8s.io; do
+  KUBECONFIG="$KARMADA_KUBECONFIG" kubectl patch apiservice "$api" \
+    --type=merge -p='{"spec":{"insecureSkipTLSVerify":true}}' 2>/dev/null || true
+done
+
+echo "⏳ Waiting for karmada-metrics-adapter pod to be ready..."
+KUBECONFIG="$WEST_KUBECONFIG" kubectl rollout status deployment/karmada-metrics-adapter \
+  -n karmada-system --timeout=120s
+
+# 11. Stop port-forward; expose karmada-apiserver as LoadBalancer for external access
 kill $PF_PID 2>/dev/null || true
 trap - EXIT
 
