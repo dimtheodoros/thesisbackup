@@ -95,7 +95,7 @@ spec:
         image: busybox:latest@sha256:498a000f370d8c37927118ed80afe8adc38d1edcbfc071627d17b25c88efcab0
         env:
         - name: FRONTEND_ADDR
-          value: "{{ .Values.frontend.name }}:80"
+          value: "{{ .Values.loadGenerator.frontendAddr | default (printf "%s:80" .Values.frontend.name) }}"
       {{- end }}
       containers:
       - name: main
@@ -108,21 +108,17 @@ spec:
           readOnlyRootFilesystem: true
         image: {{ .Values.images.repository }}/{{ .Values.loadGenerator.name }}:{{ .Values.images.tag | default .Chart.AppVersion }}
         command:
-        - locust
+        - /bin/sh
+        - -c
         args:
-        - '--host=http://frontend'
-        - '--headless'
-        - '-u'
-        - '300'
-        - '-r'
-        - '100'
+        - "locust --host=http://${FRONTEND_ADDR} --headless -u ${USERS} -r ${SPAWN_RATE}"
         env:
         - name: FRONTEND_ADDR
-          value: "{{ .Values.frontend.name }}:80"
+          value: "{{ .Values.loadGenerator.frontendAddr | default (printf "%s:80" .Values.frontend.name) }}"
         - name: USERS
-          value: "10"
-        - name: RATE
-          value: "1"
+          value: "{{ .Values.loadGenerator.users | default "10" }}"
+        - name: SPAWN_RATE
+          value: "{{ .Values.loadGenerator.spawnRate | default "1" }}"
         resources:
           {{- toYaml .Values.loadGenerator.resources | nindent 10 }}
 {{- if .Values.networkPolicies.create }}

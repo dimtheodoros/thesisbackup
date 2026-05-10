@@ -192,6 +192,9 @@ frontend:
 loadGenerator:
   create: false
   name: loadgenerator
+  frontendAddr: ""
+  users: "10"
+  spawnRate: "1"
   checkFrontendInitContainer: true
   resources:
     requests:

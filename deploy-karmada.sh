@@ -81,9 +81,19 @@ helm template online-boutique "$CHART_PATH" \
   > .generated/boutique-resources.yaml
 
 # Render loadgenerator separately — PropagationPolicy targets eu-west only
+# Target the external Istio ingress LB so traffic exercises the full ingress path
+WEST_LB_HOST=$(terraform output -raw app_url_belgium 2>/dev/null | sed 's|http://||' || echo "")
+LOADGEN_EXTRA_ARGS=()
+if [ -n "$WEST_LB_HOST" ]; then
+  echo "🌐 Loadgenerator targeting external LB: $WEST_LB_HOST"
+  LOADGEN_EXTRA_ARGS=(--set "loadGenerator.frontendAddr=${WEST_LB_HOST}")
+else
+  echo "⚠️  Could not read west LB hostname; loadgenerator will target internal frontend service"
+fi
 helm template online-boutique "$CHART_PATH" \
   --namespace "$NAMESPACE" \
   --set loadGenerator.create=true \
+  "${LOADGEN_EXTRA_ARGS[@]}" \
   --show-only templates/loadgenerator.yaml \
   > .generated/loadgenerator.yaml
 

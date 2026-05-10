@@ -1,0 +1,23 @@
+apiVersion: policy.karmada.io/v1alpha1
+kind: PropagationPolicy
+metadata:
+  name: boutique-propagation
+  namespace: online-boutique
+spec:
+  resourceSelectors:
+  - apiVersion: apps/v1
+    kind: Deployment
+  - apiVersion: v1
+    kind: Service
+  - apiVersion: v1
+    kind: ServiceAccount
+  placement:
+    clusterAffinity:
+      clusterNames:
+      - eu-west
+      - eu-north
+    replicaScheduling:
+      replicaSchedulingType: Divided
+      replicaDivisionPreference: Weighted
+      weightPreference:
+        dynamicWeight: AvailableReplicas
