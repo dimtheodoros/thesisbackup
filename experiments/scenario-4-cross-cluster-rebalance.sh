@@ -23,9 +23,9 @@ cleanup() {
       -n "$NAMESPACE" --ignore-not-found 2>/dev/null || true
   fi
   if [ "$FHPA_APPLIED" = "true" ]; then
-    log_info "Removing FederatedHPA..."
-    KUBECONFIG="$KARMADA_KUBECONFIG" kubectl delete federatedhpa frontend-fhpa \
-      -n "$NAMESPACE" --ignore-not-found 2>/dev/null || true
+    log_info "Removing FederatedHPAs..."
+    KUBECONFIG="$KARMADA_KUBECONFIG" kubectl delete federatedhpa \
+      -n "$NAMESPACE" --all 2>/dev/null || true
   fi
   if [ "$DIVIDED_APPLIED" = "true" ]; then
     log_info "Restoring Duplicated PropagationPolicy..."
@@ -85,9 +85,9 @@ log_phase "RESTORE_POLICY" "Restoring original Duplicated PropagationPolicy"
 KUBECONFIG="$KARMADA_KUBECONFIG" kubectl apply \
   -f manifests/karmada/propagation-policy.yaml
 DIVIDED_APPLIED=false
-log_info "Removing FederatedHPA..."
-KUBECONFIG="$KARMADA_KUBECONFIG" kubectl delete federatedhpa frontend-fhpa \
-  -n "$NAMESPACE" --ignore-not-found
+log_info "Removing FederatedHPAs..."
+KUBECONFIG="$KARMADA_KUBECONFIG" kubectl delete federatedhpa \
+  -n "$NAMESPACE" --all --ignore-not-found
 FHPA_APPLIED=false
 
 echo ""
