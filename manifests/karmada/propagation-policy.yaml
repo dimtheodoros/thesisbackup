@@ -31,9 +31,28 @@ spec:
     kind: Deployment
     name: loadgenerator
   - apiVersion: v1
-    kind: Service
+    kind: ServiceAccount
     name: loadgenerator
   placement:
     clusterAffinity:
       clusterNames:
       - eu-west
+---
+# Loadgenerator-north to eu-north only
+apiVersion: policy.karmada.io/v1alpha1
+kind: PropagationPolicy
+metadata:
+  name: loadgenerator-north
+  namespace: online-boutique
+spec:
+  resourceSelectors:
+  - apiVersion: apps/v1
+    kind: Deployment
+    name: loadgenerator-north
+  - apiVersion: v1
+    kind: ServiceAccount
+    name: loadgenerator-north
+  placement:
+    clusterAffinity:
+      clusterNames:
+      - eu-north

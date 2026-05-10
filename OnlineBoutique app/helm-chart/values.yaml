@@ -193,12 +193,13 @@ loadGenerator:
   create: false
   name: loadgenerator
   frontendAddr: ""
+  imageName: "loadgenerator"
   users: "10"
   spawnRate: "1"
   checkFrontendInitContainer: true
   resources:
     requests:
-      cpu: 300m
+      cpu: 100m
       memory: 256Mi
     limits:
       cpu: 500m

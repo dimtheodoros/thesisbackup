@@ -97,9 +97,27 @@ helm template online-boutique "$CHART_PATH" \
   --show-only templates/loadgenerator.yaml \
   > .generated/loadgenerator.yaml
 
+# Render loadgenerator-north — PropagationPolicy targets eu-north only
+NORTH_LB_HOST=$(terraform output -raw app_url_finland 2>/dev/null | sed 's|http://||' || echo "")
+LOADGEN_NORTH_ARGS=()
+if [ -n "$NORTH_LB_HOST" ]; then
+  echo "🌐 Loadgenerator-north targeting external LB: $NORTH_LB_HOST"
+  LOADGEN_NORTH_ARGS=(--set "loadGenerator.frontendAddr=${NORTH_LB_HOST}")
+else
+  echo "⚠️  Could not read north LB hostname; loadgenerator-north will target internal frontend service"
+fi
+helm template online-boutique "$CHART_PATH" \
+  --namespace "$NAMESPACE" \
+  --set loadGenerator.create=true \
+  --set loadGenerator.name=loadgenerator-north \
+  "${LOADGEN_NORTH_ARGS[@]}" \
+  --show-only templates/loadgenerator.yaml \
+  > .generated/loadgenerator-north.yaml
+
 echo "📤 Applying boutique resources to Karmada API server..."
 KUBECONFIG="$KARMADA_KUBECONFIG" kubectl apply -f .generated/boutique-resources.yaml
 KUBECONFIG="$KARMADA_KUBECONFIG" kubectl apply -f .generated/loadgenerator.yaml
+KUBECONFIG="$KARMADA_KUBECONFIG" kubectl apply -f .generated/loadgenerator-north.yaml
 
 # 8. Apply PropagationPolicies (boutique → both clusters, loadgenerator → west only)
 echo "📋 Applying PropagationPolicies..."
