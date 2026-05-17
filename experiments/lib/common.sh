@@ -108,7 +108,7 @@ prom_query() {
 # ── CSV metrics collection ────────────────────────────────────────────────────
 
 write_csv_header() {
-  printf 'timestamp,phase,west_rps,north_rps,west_p99_ms,north_p99_ms,west_error_rate,north_error_rate,west_frontend_replicas,north_frontend_replicas,west_adservice_replicas,north_adservice_replicas,west_currencyservice_replicas,north_currencyservice_replicas,west_productcatalogservice_replicas,north_productcatalogservice_replicas,loadgenerator_users,west_mem_pct,north_mem_pct,west_restarts,north_restarts\n' \
+  printf 'timestamp,phase,west_rps,north_rps,west_p99_ms,north_p99_ms,west_error_rate,north_error_rate,west_frontend_replicas,north_frontend_replicas,west_adservice_replicas,north_adservice_replicas,west_currencyservice_replicas,north_currencyservice_replicas,west_productcatalogservice_replicas,north_productcatalogservice_replicas,loadgenerator_users,west_mem_pct,north_mem_pct,west_restarts,north_restarts,north_loadgenerator_users\n' \
     > "$1"
 }
 
@@ -116,7 +116,7 @@ collect_metrics_row() {
   local filepath="$1" phase="$2"
   local ts west_rps north_rps west_p99 north_p99 west_err north_err \
         west_rep north_rep west_ad_rep north_ad_rep \
-        west_cur_rep north_cur_rep west_pcs_rep north_pcs_rep lg_users \
+        west_cur_rep north_cur_rep west_pcs_rep north_pcs_rep lg_users north_lg_users \
         west_mem_pct north_mem_pct west_restarts north_restarts
   ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
@@ -165,30 +165,37 @@ collect_metrics_row() {
   north_restarts=$(prom_query "$NORTH_PROM_URL" \
     'sum(kube_pod_container_status_restarts_total{namespace="online-boutique"})')
 
-  # Read desired USERS env var from the running loadgenerator pod
+  # Read desired USERS env var from the running loadgenerator pods (west and north)
   lg_users=$(KUBECONFIG="$WEST_KUBECONFIG" kubectl exec -n "$NAMESPACE" \
     "$(KUBECONFIG="$WEST_KUBECONFIG" kubectl get pod -n "$NAMESPACE" -l app=loadgenerator \
+      --field-selector=status.phase=Running \
+      -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)" \
+    -- printenv USERS 2>/dev/null || echo "NaN")
+  north_lg_users=$(KUBECONFIG="$NORTH_KUBECONFIG" kubectl exec -n "$NAMESPACE" \
+    "$(KUBECONFIG="$NORTH_KUBECONFIG" kubectl get pod -n "$NAMESPACE" -l app=loadgenerator \
+      --field-selector=status.phase=Running \
       -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)" \
     -- printenv USERS 2>/dev/null || echo "NaN")
 
-  printf '%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n' \
+  printf '%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n' \
     "$ts" "$phase" "$west_rps" "$north_rps" "$west_p99" "$north_p99" \
     "$west_err" "$north_err" "$west_rep" "$north_rep" \
     "$west_ad_rep" "$north_ad_rep" \
     "$west_cur_rep" "$north_cur_rep" "$west_pcs_rep" "$north_pcs_rep" \
     "$lg_users" "$west_mem_pct" "$north_mem_pct" "$west_restarts" "$north_restarts" \
+    "$north_lg_users" \
     >> "$filepath"
 
-  log_info "  W-RPS=${west_rps} N-RPS=${north_rps} | W-P99=${west_p99}ms N-P99=${north_p99}ms | W-fe=${west_rep} N-fe=${north_rep} | W-cur=${west_cur_rep} N-cur=${north_cur_rep} | W-pcs=${west_pcs_rep} N-pcs=${north_pcs_rep} | W-mem=${west_mem_pct}% N-mem=${north_mem_pct}% | N-rst=${north_restarts}"
+  log_info "  W-RPS=${west_rps} N-RPS=${north_rps} | W-P99=${west_p99}ms N-P99=${north_p99}ms | W-fe=${west_rep} N-fe=${north_rep} | W-cur=${west_cur_rep} N-cur=${north_cur_rep} | W-pcs=${west_pcs_rep} N-pcs=${north_pcs_rep} | W-mem=${west_mem_pct}% N-mem=${north_mem_pct}% | N-rst=${north_restarts} | W-lg=${lg_users} N-lg=${north_lg_users}"
 }
 
 collect_metrics_loop() {
   local filepath="$1" phase="$2" duration="$3"
-  local elapsed=0
-  while [ "$elapsed" -lt "$duration" ]; do
+  local start_time
+  start_time=$(date +%s)
+  while [ $(( $(date +%s) - start_time )) -lt "$duration" ]; do
     collect_metrics_row "$filepath" "$phase"
     sleep "$SAMPLE_INTERVAL_SECONDS"
-    elapsed=$((elapsed + SAMPLE_INTERVAL_SECONDS))
   done
 }
 
@@ -222,4 +229,64 @@ set_load_users() {
   KUBECONFIG="$KARMADA_KUBECONFIG" kubectl set env deployment/loadgenerator \
     -n "$NAMESPACE" USERS="$users" SPAWN_RATE="$spawn_rate"
   sleep 20
+}
+
+apply_north_locust_shape() {
+  log_info "Creating north LoadTestShape ConfigMap on eu-north..."
+  KUBECONFIG="$NORTH_KUBECONFIG" kubectl create configmap loadgenerator-north-shape \
+    -n "$NAMESPACE" \
+    --from-file=locustfile.py=experiments/manifests/locustfile-north-shape.py \
+    --dry-run=client -o yaml \
+    | KUBECONFIG="$NORTH_KUBECONFIG" kubectl apply -f -
+
+  log_info "Applying north OverridePolicy (custom locustfile + volume mount)..."
+  KUBECONFIG="$KARMADA_KUBECONFIG" kubectl apply -f - <<EOF
+apiVersion: policy.karmada.io/v1alpha1
+kind: OverridePolicy
+metadata:
+  name: loadgenerator-north-shape
+  namespace: ${NAMESPACE}
+spec:
+  resourceSelectors:
+  - apiVersion: apps/v1
+    kind: Deployment
+    name: loadgenerator
+  overrideRules:
+  - targetCluster:
+      clusterNames:
+      - eu-north
+    overriders:
+      plaintext:
+      - path: "/spec/template/spec/containers/0/args/0"
+        operator: replace
+        value: "locust --host=http://\${FRONTEND_ADDR} --headless --locustfile /loadgen-custom/locustfile.py"
+      - path: "/spec/template/spec/volumes"
+        operator: add
+        value:
+        - name: locustfile-custom
+          configMap:
+            name: loadgenerator-north-shape
+      - path: "/spec/template/spec/containers/0/volumeMounts"
+        operator: add
+        value:
+        - name: locustfile-custom
+          mountPath: /loadgen-custom
+EOF
+
+  log_info "Waiting for north loadgenerator rollout to complete (shape clock starts at pod boot)..."
+  KUBECONFIG="$NORTH_KUBECONFIG" kubectl rollout status deployment/loadgenerator \
+    -n "$NAMESPACE" --timeout=120s \
+    || log_info "WARNING: rollout timed out — continuing."
+  log_info "North loadgenerator is Running with custom shape."
+}
+
+remove_north_locust_shape() {
+  log_info "Removing north loadgenerator shape OverridePolicy..."
+  KUBECONFIG="$KARMADA_KUBECONFIG" kubectl delete overridepolicy loadgenerator-north-shape \
+    -n "$NAMESPACE" --ignore-not-found 2>/dev/null || true
+  log_info "Waiting 30s for north to revert to default locustfile..."
+  sleep 30
+  log_info "Removing north LoadTestShape ConfigMap..."
+  KUBECONFIG="$NORTH_KUBECONFIG" kubectl delete configmap loadgenerator-north-shape \
+    -n "$NAMESPACE" --ignore-not-found 2>/dev/null || true
 }

@@ -26,6 +26,7 @@ helm upgrade --install prometheus prometheus-community/kube-prometheus-stack \
   --kubeconfig "$WEST_KUBECONFIG" \
   --namespace "$NAMESPACE" \
   --values "./.generated/values-west.yaml" \
+  --values "templates/monitoring/grafana-renderer-values.yaml" \
   --set grafana.enabled=true \
   --set grafana.adminPassword=admin \
   --set grafana.sidecar.datasources.enabled=true \
@@ -88,7 +89,21 @@ data:
       isDefault: false
 EOF
 
-# 6. Apply Istio Telemetry, Scrapers, and Permissive Auth
+# 6. Provision experiment dashboards as ConfigMaps (survives pod restarts)
+echo "📊 Provisioning experiment dashboards as ConfigMaps..."
+for dashboard in experiments/grafana/*.json; do
+  [ -f "$dashboard" ] || continue
+  name="dashboard-$(basename "$dashboard" .json)"
+  KUBECONFIG="$WEST_KUBECONFIG" kubectl create configmap "$name" \
+    -n "$NAMESPACE" \
+    --from-file="$(basename "$dashboard")=$dashboard" \
+    --dry-run=client -o yaml \
+  | KUBECONFIG="$WEST_KUBECONFIG" kubectl label --local -f - grafana_dashboard=1 -o yaml \
+  | KUBECONFIG="$WEST_KUBECONFIG" kubectl apply -f -
+  echo "  ✓ $name"
+done
+
+# 7. Apply Istio Telemetry, Scrapers, and Permissive Auth
 echo "🛠️ Configuring Istio Metrics and Auth..."
 KUBECONFIG="$WEST_KUBECONFIG" kubectl apply -f manifests/istio-telemetry.yaml
 KUBECONFIG="$NORTH_KUBECONFIG" kubectl apply -f manifests/istio-telemetry.yaml
@@ -97,7 +112,7 @@ KUBECONFIG="$NORTH_KUBECONFIG" kubectl apply -f manifests/boutique-monitor.yaml
 KUBECONFIG="$WEST_KUBECONFIG" kubectl apply -f manifests/monitoring-auth.yaml
 KUBECONFIG="$NORTH_KUBECONFIG" kubectl apply -f manifests/monitoring-auth.yaml
 
-# 7. Expose Grafana
+# 8. Expose Grafana
 echo "🌐 Exposing Grafana..."
 KUBECONFIG="$WEST_KUBECONFIG" kubectl expose deployment prometheus-grafana \
   --type=LoadBalancer --name=grafana-public -n "$NAMESPACE" --port=80 --target-port=3000 || true
@@ -105,9 +120,42 @@ KUBECONFIG="$WEST_KUBECONFIG" kubectl expose deployment prometheus-grafana \
 echo "⏳ Waiting 45 seconds for Grafana public IP..."
 sleep 45
 
-# 8. Force a restart of Grafana to ensure clean state
+# 9. Force a restart of Grafana to ensure clean state
 echo "♻️ Restarting Grafana..."
 KUBECONFIG="$WEST_KUBECONFIG" kubectl rollout restart deployment prometheus-grafana -n "$NAMESPACE"
+KUBECONFIG="$WEST_KUBECONFIG" kubectl rollout status deployment prometheus-grafana -n "$NAMESPACE" --timeout=120s
+
+# 10. Push experiment dashboards via API (fallback — ConfigMaps above are the primary mechanism)
+echo "📊 Pushing experiment dashboards to Grafana..."
+GRAFANA_HOST=""
+for i in $(seq 1 24); do
+  GRAFANA_HOST=$(KUBECONFIG="$WEST_KUBECONFIG" kubectl get svc grafana-public \
+    -n "$NAMESPACE" -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)
+  [ -n "$GRAFANA_HOST" ] && break
+  sleep 5
+done
+
+if [ -n "$GRAFANA_HOST" ]; then
+  for i in $(seq 1 12); do
+    curl -sf "http://admin:admin@${GRAFANA_HOST}/api/health" &>/dev/null && break
+    sleep 5
+  done
+  for dashboard in experiments/grafana/*.json; do
+    [ -f "$dashboard" ] || continue
+    name=$(basename "$dashboard")
+    result=$(curl -sf -X POST "http://admin:admin@${GRAFANA_HOST}/api/dashboards/db" \
+      -H "Content-Type: application/json" \
+      -d "{\"dashboard\": $(cat "$dashboard"), \"overwrite\": true, \"folderId\": 0}" 2>/dev/null || true)
+    url=$(echo "$result" | jq -r '.url // empty' 2>/dev/null || true)
+    if [ -n "$url" ]; then
+      echo "  ✓ $name → http://${GRAFANA_HOST}${url}"
+    else
+      echo "  ✗ Failed to push $name"
+    fi
+  done
+else
+  echo "⚠️  Grafana LoadBalancer not ready — dashboards not pushed. Re-run deploy-monitoring.sh or push manually."
+fi
 
 echo "✨ Layer 2 Monitoring Deployed Successfully!"
 echo "------------------------------------------------"
