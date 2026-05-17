@@ -108,7 +108,7 @@ prom_query() {
 # ── CSV metrics collection ────────────────────────────────────────────────────
 
 write_csv_header() {
-  printf 'timestamp,phase,west_rps,north_rps,west_p99_ms,north_p99_ms,west_error_rate,north_error_rate,west_frontend_replicas,north_frontend_replicas,west_adservice_replicas,north_adservice_replicas,west_currencyservice_replicas,north_currencyservice_replicas,west_productcatalogservice_replicas,north_productcatalogservice_replicas,loadgenerator_users\n' \
+  printf 'timestamp,phase,west_rps,north_rps,west_p99_ms,north_p99_ms,west_error_rate,north_error_rate,west_frontend_replicas,north_frontend_replicas,west_adservice_replicas,north_adservice_replicas,west_currencyservice_replicas,north_currencyservice_replicas,west_productcatalogservice_replicas,north_productcatalogservice_replicas,loadgenerator_users,west_mem_pct,north_mem_pct,west_restarts,north_restarts\n' \
     > "$1"
 }
 
@@ -116,7 +116,8 @@ collect_metrics_row() {
   local filepath="$1" phase="$2"
   local ts west_rps north_rps west_p99 north_p99 west_err north_err \
         west_rep north_rep west_ad_rep north_ad_rep \
-        west_cur_rep north_cur_rep west_pcs_rep north_pcs_rep lg_users
+        west_cur_rep north_cur_rep west_pcs_rep north_pcs_rep lg_users \
+        west_mem_pct north_mem_pct west_restarts north_restarts
   ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
   west_rps=$(prom_query "$WEST_PROM_URL" \
@@ -154,21 +155,31 @@ collect_metrics_row() {
   north_pcs_rep=$(prom_query "$NORTH_PROM_URL" \
     'kube_deployment_status_replicas_available{namespace="online-boutique",deployment="productcatalogservice"}')
 
+  west_mem_pct=$(prom_query "$WEST_PROM_URL" \
+    'avg(container_memory_working_set_bytes{namespace="online-boutique",container!="",container!="POD",container!="istio-proxy"} / container_spec_memory_limit_bytes{namespace="online-boutique",container!="",container!="POD",container!="istio-proxy"}) * 100')
+  north_mem_pct=$(prom_query "$NORTH_PROM_URL" \
+    'avg(container_memory_working_set_bytes{namespace="online-boutique",container!="",container!="POD",container!="istio-proxy"} / container_spec_memory_limit_bytes{namespace="online-boutique",container!="",container!="POD",container!="istio-proxy"}) * 100')
+
+  west_restarts=$(prom_query "$WEST_PROM_URL" \
+    'sum(kube_pod_container_status_restarts_total{namespace="online-boutique"})')
+  north_restarts=$(prom_query "$NORTH_PROM_URL" \
+    'sum(kube_pod_container_status_restarts_total{namespace="online-boutique"})')
+
   # Read desired USERS env var from the running loadgenerator pod
   lg_users=$(KUBECONFIG="$WEST_KUBECONFIG" kubectl exec -n "$NAMESPACE" \
     "$(KUBECONFIG="$WEST_KUBECONFIG" kubectl get pod -n "$NAMESPACE" -l app=loadgenerator \
       -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)" \
     -- printenv USERS 2>/dev/null || echo "NaN")
 
-  printf '%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n' \
+  printf '%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n' \
     "$ts" "$phase" "$west_rps" "$north_rps" "$west_p99" "$north_p99" \
     "$west_err" "$north_err" "$west_rep" "$north_rep" \
     "$west_ad_rep" "$north_ad_rep" \
     "$west_cur_rep" "$north_cur_rep" "$west_pcs_rep" "$north_pcs_rep" \
-    "$lg_users" \
+    "$lg_users" "$west_mem_pct" "$north_mem_pct" "$west_restarts" "$north_restarts" \
     >> "$filepath"
 
-  log_info "  W-RPS=${west_rps} N-RPS=${north_rps} | W-P99=${west_p99}ms N-P99=${north_p99}ms | W-fe=${west_rep} N-fe=${north_rep} | W-cur=${west_cur_rep} N-cur=${north_cur_rep} | W-pcs=${west_pcs_rep} N-pcs=${north_pcs_rep}"
+  log_info "  W-RPS=${west_rps} N-RPS=${north_rps} | W-P99=${west_p99}ms N-P99=${north_p99}ms | W-fe=${west_rep} N-fe=${north_rep} | W-cur=${west_cur_rep} N-cur=${north_cur_rep} | W-pcs=${west_pcs_rep} N-pcs=${north_pcs_rep} | W-mem=${west_mem_pct}% N-mem=${north_mem_pct}% | N-rst=${north_restarts}"
 }
 
 collect_metrics_loop() {

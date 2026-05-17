@@ -1,0 +1,29 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: north-ram-stress
+  namespace: online-boutique
+  labels:
+    app: north-ram-stress
+    experiment: scenario4
+spec:
+  containers:
+  - name: stress
+    image: polinux/stress:latest
+    args:
+    - stress
+    - --vm
+    - "1"
+    - --vm-bytes
+    - "3G"
+    - --timeout
+    - "900s"
+    resources:
+      requests:
+        cpu: "100m"
+        memory: 500Mi
+      limits:
+        cpu: "500m"
+        memory: "4Gi"
+  restartPolicy: Never
+  terminationGracePeriodSeconds: 0
