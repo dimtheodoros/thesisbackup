@@ -154,14 +154,74 @@ KUBECONFIG="$WEST_KUBECONFIG" kubectl patch deployment karmada-metrics-adapter \
     }
   }]'
 
-# Fix 2: karmadactl addons creates APIServices without insecureSkipTLSVerify.
-# The adapter's cert is signed by the karmada CA which the karmada-apiserver doesn't trust
-# unless TLS verification is disabled.
-echo "🔧 Patching metrics APIServices to skip TLS verification..."
-for api in v1beta1.metrics.k8s.io v1beta1.custom.metrics.k8s.io v1beta2.custom.metrics.k8s.io; do
-  KUBECONFIG="$KARMADA_KUBECONFIG" kubectl patch apiservice "$api" \
-    --type=merge -p='{"spec":{"insecureSkipTLSVerify":true}}' 2>/dev/null || true
-done
+# Fix 2: karmadactl addons times out before registering APIServices in the Karmada API
+# server, so we apply them explicitly. insecureSkipTLSVerify is required because the
+# adapter cert is signed by the Karmada CA which the aggregation layer doesn't trust.
+# We also need an ExternalName service in Karmada's own namespace store so the
+# aggregation layer can resolve karmada-metrics-adapter.karmada-system to the actual
+# pod running on the host cluster.
+echo "🔧 Registering metrics APIServices and ExternalName resolver in Karmada..."
+KUBECONFIG="$KARMADA_KUBECONFIG" kubectl apply -f - <<'METRICS_EOF'
+---
+apiVersion: apiregistration.k8s.io/v1
+kind: APIService
+metadata:
+  name: v1beta1.metrics.k8s.io
+spec:
+  service:
+    name: karmada-metrics-adapter
+    namespace: karmada-system
+    port: 443
+  group: metrics.k8s.io
+  version: v1beta1
+  insecureSkipTLSVerify: true
+  groupPriorityMinimum: 100
+  versionPriority: 100
+---
+apiVersion: apiregistration.k8s.io/v1
+kind: APIService
+metadata:
+  name: v1beta1.custom.metrics.k8s.io
+spec:
+  service:
+    name: karmada-metrics-adapter
+    namespace: karmada-system
+    port: 443
+  group: custom.metrics.k8s.io
+  version: v1beta1
+  insecureSkipTLSVerify: true
+  groupPriorityMinimum: 100
+  versionPriority: 100
+---
+apiVersion: apiregistration.k8s.io/v1
+kind: APIService
+metadata:
+  name: v1beta2.custom.metrics.k8s.io
+spec:
+  service:
+    name: karmada-metrics-adapter
+    namespace: karmada-system
+    port: 443
+  group: custom.metrics.k8s.io
+  version: v1beta2
+  insecureSkipTLSVerify: true
+  groupPriorityMinimum: 100
+  versionPriority: 100
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: karmada-metrics-adapter
+  namespace: karmada-system
+spec:
+  type: ExternalName
+  externalName: karmada-metrics-adapter.karmada-system.svc.cluster.local
+  ports:
+  - name: https
+    port: 443
+    targetPort: 443
+    protocol: TCP
+METRICS_EOF
 
 echo "⏳ Waiting for karmada-metrics-adapter pod to be ready..."
 KUBECONFIG="$WEST_KUBECONFIG" kubectl rollout status deployment/karmada-metrics-adapter \
