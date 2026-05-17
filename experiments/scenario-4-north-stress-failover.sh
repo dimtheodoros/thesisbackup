@@ -7,7 +7,7 @@
 # West cluster hosts Karmada and monitoring and is never stressed.
 # Recovery observes Istio reinstating north endpoints and FederatedHPA scaling down.
 #
-# Usage: bash experiments/scenario-4-cross-cluster-rebalance.sh
+# Usage: bash experiments/scenario-4-north-stress-failover.sh
 set -euo pipefail
 cd "$(cd "$(dirname "$0")/.." && pwd)"
 . experiments/lib/common.sh
@@ -49,9 +49,9 @@ trap cleanup EXIT INT TERM
 check_prerequisites
 start_karmada_portforward
 
-log_phase "SETUP" "Applying FederatedHPAs (minReplicas=1, CPU target: 60%)"
+log_phase "SETUP" "Applying FederatedHPAs (minReplicas=1, CPU target: 40%)"
 KUBECONFIG="$KARMADA_KUBECONFIG" kubectl apply \
-  -f experiments/manifests/scenario3-federated-hpa.yaml
+  -f experiments/manifests/scenario4-north-stress-fhpa.yaml
 FHPA_APPLIED=true
 log_info "Waiting 30s for FederatedHPA propagation..."
 sleep 30
@@ -63,8 +63,8 @@ write_csv_header "$RESULT_FILE"
 log_phase "BASELINE" "2 min at 10 users — clean floor, both clusters idle"
 collect_metrics_loop "$RESULT_FILE" "baseline" 120
 
-set_load_users 150; LOAD_CHANGED=true
-log_phase "RAMP_LOAD" "3 min at 150 users per cluster — FederatedHPA scaling under healthy load"
+set_load_users 200; LOAD_CHANGED=true
+log_phase "RAMP_LOAD" "3 min at 200 users per cluster — FederatedHPA scaling under healthy load"
 collect_metrics_loop "$RESULT_FILE" "ramp_load" 180
 
 log_phase "CPU_STRESS" "Deploying CPU stress pod on north (400m request / 2 CPU limit)"

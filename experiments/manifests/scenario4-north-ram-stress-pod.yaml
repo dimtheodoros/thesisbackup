@@ -15,7 +15,7 @@ spec:
     - --vm
     - "1"
     - --vm-bytes
-    - "3G"
+    - "5G"
     - --timeout
     - "900s"
     resources:
@@ -24,6 +24,6 @@ spec:
         memory: 500Mi
       limits:
         cpu: "500m"
-        memory: "4Gi"
+        memory: "6Gi"
   restartPolicy: Never
   terminationGracePeriodSeconds: 0

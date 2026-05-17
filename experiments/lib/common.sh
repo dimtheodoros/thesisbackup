@@ -156,9 +156,9 @@ collect_metrics_row() {
     'kube_deployment_status_replicas_available{namespace="online-boutique",deployment="productcatalogservice"}')
 
   west_mem_pct=$(prom_query "$WEST_PROM_URL" \
-    'avg(container_memory_working_set_bytes{namespace="online-boutique",container!="",container!="POD",container!="istio-proxy"} / container_spec_memory_limit_bytes{namespace="online-boutique",container!="",container!="POD",container!="istio-proxy"}) * 100')
+    '(1 - sum(node_memory_MemAvailable_bytes) / sum(node_memory_MemTotal_bytes)) * 100')
   north_mem_pct=$(prom_query "$NORTH_PROM_URL" \
-    'avg(container_memory_working_set_bytes{namespace="online-boutique",container!="",container!="POD",container!="istio-proxy"} / container_spec_memory_limit_bytes{namespace="online-boutique",container!="",container!="POD",container!="istio-proxy"}) * 100')
+    '(1 - sum(node_memory_MemAvailable_bytes) / sum(node_memory_MemTotal_bytes)) * 100')
 
   west_restarts=$(prom_query "$WEST_PROM_URL" \
     'sum(kube_pod_container_status_restarts_total{namespace="online-boutique"})')
