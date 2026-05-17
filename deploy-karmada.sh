@@ -128,7 +128,7 @@ rm -f "$ADAPTER_KC"
 karmadactl addons enable karmada-metrics-adapter \
   --kubeconfig="$WEST_KUBECONFIG" \
   --karmada-kubeconfig="$KARMADA_KUBECONFIG" \
-  --namespace karmada-system
+  --namespace karmada-system || true
 
 # Fix 1: karmada-cert has key "server-ca.crt" but the adapter expects "/etc/karmada/pki/ca.crt".
 # Patch the Deployment to remap the secret key to the expected filename.
