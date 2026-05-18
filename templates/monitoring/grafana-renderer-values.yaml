@@ -10,7 +10,7 @@ grafana:
           value: "8081"
         - name: ENABLE_METRICS
           value: "true"
-        - name: RENDERING_AUTH_TOKEN
+        - name: AUTH_TOKEN
           value: "boutique-renderer-token"
       resources:
         requests:
@@ -27,3 +27,5 @@ grafana:
     auth.anonymous:
       enabled: true
       org_role: Viewer
+    feature_toggles:
+      renderAuthJWT: "false"
