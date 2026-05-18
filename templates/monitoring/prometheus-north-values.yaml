@@ -1,0 +1,7 @@
+prometheus:
+  prometheusSpec:
+    # emptyDir takes precedence over volumeClaimTemplate (Prometheus Operator spec).
+    # This allows Prometheus to reschedule onto any AZ when its original node is drained,
+    # avoiding a monitoring blackout during zone failure experiments.
+    storageSpec:
+      emptyDir: {}

@@ -44,6 +44,7 @@ helm upgrade --install prometheus prometheus-community/kube-prometheus-stack \
   --kubeconfig "$NORTH_KUBECONFIG" \
   --namespace "$NAMESPACE" \
   --values "./.generated/values-north.yaml" \
+  --values "templates/monitoring/prometheus-north-values.yaml" \
   --set grafana.enabled=false \
   --set prometheusOperator.admissionWebhooks.enabled=false \
   --set prometheusOperator.admissionWebhooks.patch.enabled=false \

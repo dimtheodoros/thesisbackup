@@ -290,3 +290,27 @@ remove_north_locust_shape() {
   KUBECONFIG="$NORTH_KUBECONFIG" kubectl delete configmap loadgenerator-north-shape \
     -n "$NAMESPACE" --ignore-not-found 2>/dev/null || true
 }
+
+# ── Zone failure simulation ───────────────────────────────────────────────────
+
+cordon_and_drain_north_node() {
+  local node="$1"
+  log_info "Cordoning ${node}..."
+  KUBECONFIG="$NORTH_KUBECONFIG" kubectl cordon "$node"
+  log_info "Draining ${node} (--ignore-daemonsets --delete-emptydir-data)..."
+  KUBECONFIG="$NORTH_KUBECONFIG" kubectl drain "$node" \
+    --ignore-daemonsets \
+    --delete-emptydir-data \
+    --timeout=120s \
+    --grace-period=10
+  log_info "Drain complete. Waiting 30s for Istio to detect endpoint removal..."
+  sleep 30
+}
+
+uncordon_north_node() {
+  local node="$1"
+  log_info "Uncordoning ${node}..."
+  KUBECONFIG="$NORTH_KUBECONFIG" kubectl uncordon "$node"
+  log_info "Waiting 30s for pods to reschedule onto ${node}..."
+  sleep 30
+}

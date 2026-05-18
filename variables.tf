@@ -51,7 +51,7 @@ variable "max_nodes" {
 # For regional clusters, this is effectively per-zone node_count within the node pool.
 variable "nodes_per_zone" {
   type    = number
-  default = 1
+  default = 3
 }
 
 variable "istio_version" {
