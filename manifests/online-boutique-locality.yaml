@@ -15,10 +15,10 @@ spec:
         - from: eu-north-1
           to: eu-west-1
     outlierDetection:
-      consecutive5xxErrors: 1
+      consecutive5xxErrors: 5
       interval: 1s
       baseEjectionTime: 1m
-      maxEjectionPercent: 100
+      maxEjectionPercent: 50
     tls:
       mode: ISTIO_MUTUAL
 ---
@@ -39,10 +39,10 @@ spec:
         - from: eu-north-1
           to: eu-west-1
     outlierDetection:
-      consecutive5xxErrors: 1
+      consecutive5xxErrors: 5
       interval: 1s
       baseEjectionTime: 1m
-      maxEjectionPercent: 100
+      maxEjectionPercent: 50
     tls:
       mode: ISTIO_MUTUAL
 ---
@@ -63,10 +63,10 @@ spec:
         - from: eu-north-1
           to: eu-west-1
     outlierDetection:
-      consecutive5xxErrors: 1
+      consecutive5xxErrors: 5
       interval: 1s
       baseEjectionTime: 1m
-      maxEjectionPercent: 100
+      maxEjectionPercent: 50
     tls:
       mode: ISTIO_MUTUAL
 ---
@@ -87,10 +87,10 @@ spec:
         - from: eu-north-1
           to: eu-west-1
     outlierDetection:
-      consecutive5xxErrors: 1
+      consecutive5xxErrors: 5
       interval: 1s
       baseEjectionTime: 1m
-      maxEjectionPercent: 100
+      maxEjectionPercent: 50
     tls:
       mode: ISTIO_MUTUAL
 ---
@@ -111,10 +111,10 @@ spec:
         - from: eu-north-1
           to: eu-west-1
     outlierDetection:
-      consecutive5xxErrors: 1
+      consecutive5xxErrors: 5
       interval: 1s
       baseEjectionTime: 1m
-      maxEjectionPercent: 100
+      maxEjectionPercent: 50
     tls:
       mode: ISTIO_MUTUAL
 ---
@@ -135,10 +135,10 @@ spec:
         - from: eu-north-1
           to: eu-west-1
     outlierDetection:
-      consecutive5xxErrors: 1
+      consecutive5xxErrors: 5
       interval: 1s
       baseEjectionTime: 1m
-      maxEjectionPercent: 100
+      maxEjectionPercent: 50
     tls:
       mode: ISTIO_MUTUAL
 ---
@@ -159,10 +159,10 @@ spec:
         - from: eu-north-1
           to: eu-west-1
     outlierDetection:
-      consecutive5xxErrors: 1
+      consecutive5xxErrors: 5
       interval: 1s
       baseEjectionTime: 1m
-      maxEjectionPercent: 100
+      maxEjectionPercent: 50
     tls:
       mode: ISTIO_MUTUAL
 ---
@@ -183,10 +183,10 @@ spec:
         - from: eu-north-1
           to: eu-west-1
     outlierDetection:
-      consecutive5xxErrors: 1
+      consecutive5xxErrors: 5
       interval: 1s
       baseEjectionTime: 1m
-      maxEjectionPercent: 100
+      maxEjectionPercent: 50
     tls:
       mode: ISTIO_MUTUAL
 ---
@@ -207,10 +207,10 @@ spec:
         - from: eu-north-1
           to: eu-west-1
     outlierDetection:
-      consecutive5xxErrors: 1
+      consecutive5xxErrors: 5
       interval: 1s
       baseEjectionTime: 1m
-      maxEjectionPercent: 100
+      maxEjectionPercent: 50
     tls:
       mode: ISTIO_MUTUAL
 ---
@@ -231,10 +231,10 @@ spec:
         - from: eu-north-1
           to: eu-west-1
     outlierDetection:
-      consecutive5xxErrors: 1
+      consecutive5xxErrors: 5
       interval: 1s
       baseEjectionTime: 1m
-      maxEjectionPercent: 100
+      maxEjectionPercent: 50
     tls:
       mode: ISTIO_MUTUAL
 ---
@@ -255,9 +255,9 @@ spec:
         - from: eu-north-1
           to: eu-west-1
     outlierDetection:
-      consecutive5xxErrors: 1
+      consecutive5xxErrors: 5
       interval: 1s
       baseEjectionTime: 1m
-      maxEjectionPercent: 100
+      maxEjectionPercent: 50
     tls:
       mode: ISTIO_MUTUAL

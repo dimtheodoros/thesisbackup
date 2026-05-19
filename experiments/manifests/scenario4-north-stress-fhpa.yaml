@@ -22,7 +22,7 @@ spec:
       name: cpu
       target:
         type: Utilization
-        averageUtilization: 40
+        averageUtilization: 70
 ---
 apiVersion: autoscaling.karmada.io/v1alpha1
 kind: FederatedHPA
@@ -47,7 +47,7 @@ spec:
       name: cpu
       target:
         type: Utilization
-        averageUtilization: 40
+        averageUtilization: 70
 ---
 apiVersion: autoscaling.karmada.io/v1alpha1
 kind: FederatedHPA
@@ -72,7 +72,7 @@ spec:
       name: cpu
       target:
         type: Utilization
-        averageUtilization: 40
+        averageUtilization: 70
 ---
 apiVersion: autoscaling.karmada.io/v1alpha1
 kind: FederatedHPA
@@ -97,7 +97,7 @@ spec:
       name: cpu
       target:
         type: Utilization
-        averageUtilization: 40
+        averageUtilization: 70
 ---
 apiVersion: autoscaling.karmada.io/v1alpha1
 kind: FederatedHPA
@@ -122,7 +122,7 @@ spec:
       name: cpu
       target:
         type: Utilization
-        averageUtilization: 40
+        averageUtilization: 70
 ---
 apiVersion: autoscaling.karmada.io/v1alpha1
 kind: FederatedHPA
@@ -147,7 +147,7 @@ spec:
       name: cpu
       target:
         type: Utilization
-        averageUtilization: 40
+        averageUtilization: 70
 ---
 apiVersion: autoscaling.karmada.io/v1alpha1
 kind: FederatedHPA
@@ -172,7 +172,7 @@ spec:
       name: cpu
       target:
         type: Utilization
-        averageUtilization: 40
+        averageUtilization: 70
 ---
 apiVersion: autoscaling.karmada.io/v1alpha1
 kind: FederatedHPA
@@ -197,7 +197,7 @@ spec:
       name: cpu
       target:
         type: Utilization
-        averageUtilization: 40
+        averageUtilization: 70
 ---
 apiVersion: autoscaling.karmada.io/v1alpha1
 kind: FederatedHPA
@@ -222,4 +222,4 @@ spec:
       name: cpu
       target:
         type: Utilization
-        averageUtilization: 40
+        averageUtilization: 70
