@@ -1,0 +1,23 @@
+# PodMonitor for kube-netlag DaemonSet.
+# kube-netlag exposes node_avg_latency_ms on port 9090 (hostNetwork mode).
+# This PodMonitor is picked up by the existing kube-prometheus-stack Prometheus Operator.
+# Applied to both clusters by deploy-stornx.sh.
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: kube-netlag
+  namespace: online-boutique
+  labels:
+    # Match the Prometheus Operator's podMonitorSelector used by kube-prometheus-stack
+    release: prometheus
+spec:
+  namespaceSelector:
+    matchNames:
+      - stornx
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kube-netlag
+  podMetricsEndpoints:
+    - targetPort: 9090
+      path: /metrics
+      interval: 15s

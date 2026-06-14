@@ -1,0 +1,69 @@
+# StornX Helm values — eu-west cluster
+# OptiBalancer only: SCALER_RESPECT_HPA=true defers all scaling to FederatedHPA.
+# Prometheus, Istio, metrics-server and Kiali are already installed; only kube-netlag is new.
+
+image:
+  tag: "1.1.1"
+
+imagePullSecrets: []
+
+config:
+  env: production
+  namespaces: "online-boutique"
+  prometheusUrl: "http://prometheus-operated.online-boutique.svc.cluster.local:9090"
+  cronjobExpression: "* * * * *"
+  localityLabelsCron: "* * * * *"
+  metricsType: "cpu"
+  metricsUpperThreshold: "80"
+  metricsLowerThreshold: "20"
+  responseTimeThreshold: "100"
+  cpuWeight: "50"
+  memoryWeight: "50"
+  balancer:
+    minDelta: "5"
+    minStepSize: "5"
+    maxStepSize: "20"
+    urgencyThreshold: "50"
+    epsilon: "1"
+  faultTolerance:
+    ftMaxZones: "3"
+
+extraEnv:
+  - name: SCALER_RESPECT_HPA
+    value: "true"
+  - name: SCALER_RESPECT_PDB
+    value: "true"
+  # Align app data path with the PVC mount below
+  - name: DATA_PATH
+    value: "/opt/data"
+
+persistence:
+  enabled: true
+  storageClassName: "gp2"
+  accessModes:
+    - ReadWriteOnce
+  size: 1Gi
+  mountPath: /opt/data
+
+# Disable bundled dependencies that are already present in the cluster
+prometheus:
+  enabled: false
+
+istiod:
+  enabled: false
+
+metrics-server:
+  enabled: false
+
+kiali:
+  enabled: false
+
+# Install kube-netlag DaemonSet (provides node_avg_latency_ms metric)
+kube-netlag:
+  enabled: true
+  imagePullSecrets: []
+  nameOverride: "kube-netlag"
+  # kube-netlag's built-in ConfigMap-based scrape config is unused here;
+  # we scrape it via a PodMonitor applied separately.
+  prometheusConfig:
+    create: false

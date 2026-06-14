@@ -1,0 +1,63 @@
+# StornX Helm values — eu-north cluster
+# Identical to values-west.yaml: same internal Prometheus service name on both clusters.
+
+image:
+  tag: "1.1.1"
+
+imagePullSecrets: []
+
+config:
+  env: production
+  namespaces: "online-boutique"
+  prometheusUrl: "http://prometheus-operated.online-boutique.svc.cluster.local:9090"
+  cronjobExpression: "* * * * *"
+  localityLabelsCron: "* * * * *"
+  metricsType: "cpu"
+  metricsUpperThreshold: "80"
+  metricsLowerThreshold: "20"
+  responseTimeThreshold: "100"
+  cpuWeight: "50"
+  memoryWeight: "50"
+  balancer:
+    minDelta: "5"
+    minStepSize: "5"
+    maxStepSize: "20"
+    urgencyThreshold: "50"
+    epsilon: "1"
+  faultTolerance:
+    ftMaxZones: "3"
+
+extraEnv:
+  - name: SCALER_RESPECT_HPA
+    value: "true"
+  - name: SCALER_RESPECT_PDB
+    value: "true"
+  - name: DATA_PATH
+    value: "/opt/data"
+
+persistence:
+  enabled: true
+  storageClassName: "gp2"
+  accessModes:
+    - ReadWriteOnce
+  size: 1Gi
+  mountPath: /opt/data
+
+prometheus:
+  enabled: false
+
+istiod:
+  enabled: false
+
+metrics-server:
+  enabled: false
+
+kiali:
+  enabled: false
+
+kube-netlag:
+  enabled: true
+  imagePullSecrets: []
+  nameOverride: "kube-netlag"
+  prometheusConfig:
+    create: false

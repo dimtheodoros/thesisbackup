@@ -1,0 +1,35 @@
+# PodMonitor for Istio sidecar metrics compatible with StornX's Prometheus queries.
+#
+# StornX queries istio_requests_total with:
+#   job="kubernetes-pods"  — relabeled below from the default scrape job name
+#   node=<nodeName>        — added below from __meta_kubernetes_pod_node_name
+#
+# Scrapes port 15090 (http-envoy-prom) on every Istio-injected pod in online-boutique.
+# A separate scrape job (boutique-monitor ServiceMonitor) already scrapes port 15020
+# for general Istio telemetry; this PodMonitor adds the job+node labels StornX needs.
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: boutique-stornx-graph
+  namespace: online-boutique
+  labels:
+    release: prometheus
+spec:
+  namespaceSelector:
+    matchNames:
+      - online-boutique
+  selector:
+    matchExpressions:
+      - key: app
+        operator: Exists
+  podMetricsEndpoints:
+    - port: http-envoy-prom
+      path: /stats/prometheus
+      interval: 15s
+      relabelings:
+        # Add the Kubernetes node name as the 'node' label StornX expects
+        - sourceLabels: [__meta_kubernetes_pod_node_name]
+          targetLabel: node
+        # Rename the job to 'kubernetes-pods' to match StornX's Prometheus queries
+        - replacement: kubernetes-pods
+          targetLabel: job
