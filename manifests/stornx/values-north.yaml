@@ -61,3 +61,10 @@ kube-netlag:
   nameOverride: "kube-netlag"
   prometheusConfig:
     create: false
+  resources:
+    requests:
+      cpu: 50m
+      memory: 40Mi
+    limits:
+      cpu: 400m
+      memory: 80Mi

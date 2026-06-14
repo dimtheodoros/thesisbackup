@@ -67,3 +67,12 @@ kube-netlag:
   # we scrape it via a PodMonitor applied separately.
   prometheusConfig:
     create: false
+  # Reduced CPU request so kube-netlag fits on nodes that are already 90%+
+  # allocated by the boutique workloads and Prometheus stack.
+  resources:
+    requests:
+      cpu: 50m
+      memory: 40Mi
+    limits:
+      cpu: 400m
+      memory: 80Mi

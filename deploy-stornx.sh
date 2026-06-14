@@ -180,6 +180,7 @@ _bootstrap() {
   KUBECONFIG="$kubeconfig" kubectl exec -n "$STORNX_NS" "$stornx_pod" -- \
     node -e "
 const fs=require('fs');
+fs.mkdirSync('/opt/data/deploys',{recursive:true});
 const data=[
   {deployment:'frontend',namespace:'${NAMESPACE}'},
   {deployment:'checkoutservice',namespace:'${NAMESPACE}'},
