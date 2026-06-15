@@ -111,7 +111,66 @@ KUBECONFIG="$WEST_KUBECONFIG" kubectl apply -f manifests/stornx/istio-podmonitor
 KUBECONFIG="$NORTH_KUBECONFIG" kubectl apply -f manifests/stornx/istio-podmonitor.yaml
 
 # ---------------------------------------------------------------------------
-# 7. Bootstrap OptiBalancer on both clusters.
+# 7. Apply the bootstrap CronJob to both clusters.
+#    Runs every minute and repopulates /opt/data/deploys/deploys.json so
+#    OptiBalancer fires on every cron cycle after StornX clears the file.
+# ---------------------------------------------------------------------------
+echo "Applying bootstrap CronJob to both clusters..."
+KUBECONFIG="$WEST_KUBECONFIG" kubectl apply -f manifests/stornx/bootstrap-cronjob.yaml
+KUBECONFIG="$NORTH_KUBECONFIG" kubectl apply -f manifests/stornx/bootstrap-cronjob.yaml
+
+# ---------------------------------------------------------------------------
+# 8. Set up Prometheus federation on eu-west so it scrapes eu-north's
+#    istio_requests_total{job="kubernetes-pods"} and node_avg_latency_ms.
+#    With both clusters' metrics visible to eu-west StornX, OptiBalancer's
+#    graph queries return eu-north nodes and the generated DestinationRules
+#    include cross-cluster distribute weights.
+# ---------------------------------------------------------------------------
+echo ""
+echo "Setting up Prometheus federation (eu-west scrapes eu-north)..."
+
+NORTH_PROM_HOST=""
+for i in $(seq 1 12); do
+  NORTH_PROM_HOST=$(KUBECONFIG="$NORTH_KUBECONFIG" kubectl get svc prometheus-public \
+    -n "$NAMESPACE" -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)
+  [ -n "$NORTH_PROM_HOST" ] && break
+  echo "  Waiting for eu-north prometheus-public LB hostname... (${i}/12)"
+  sleep 10
+done
+
+if [ -z "$NORTH_PROM_HOST" ]; then
+  echo "  WARNING: could not resolve eu-north Prometheus hostname — federation skipped."
+else
+  echo "  eu-north Prometheus: http://${NORTH_PROM_HOST}:9090"
+
+  SCRAPE_YAML="- job_name: 'federate-eu-north'
+  scrape_interval: 15s
+  honor_labels: true
+  metrics_path: /federate
+  params:
+    'match[]':
+      - 'istio_requests_total{job=\"kubernetes-pods\"}'
+      - 'node_avg_latency_ms'
+  static_configs:
+    - targets:
+      - '${NORTH_PROM_HOST}:9090'"
+
+  KUBECONFIG="$WEST_KUBECONFIG" kubectl create secret generic stornx-federation-scrape-config \
+    --namespace "$NAMESPACE" \
+    --from-literal="additional.yaml=${SCRAPE_YAML}" \
+    --dry-run=client -o yaml \
+    | KUBECONFIG="$WEST_KUBECONFIG" kubectl apply -f -
+
+  PROM_CR=$(KUBECONFIG="$WEST_KUBECONFIG" kubectl get prometheus \
+    -n "$NAMESPACE" -o jsonpath='{.items[0].metadata.name}')
+  KUBECONFIG="$WEST_KUBECONFIG" kubectl patch prometheus "$PROM_CR" \
+    -n "$NAMESPACE" --type=merge \
+    -p '{"spec":{"additionalScrapeConfigs":{"name":"stornx-federation-scrape-config","key":"additional.yaml"}}}'
+  echo "  Federation active on eu-west Prometheus (CR: ${PROM_CR})."
+fi
+
+# ---------------------------------------------------------------------------
+# 9. Bootstrap OptiBalancer on both clusters.
 #
 #    OptiBalancer only runs via the normal threshold path when services are
 #    heavily loaded; with single-replica boutique services at idle it never
@@ -209,7 +268,7 @@ echo "Bootstrap complete. OptiBalancer will create DestinationRules on the next"
 echo "cron cycle (within 60 seconds) for both clusters."
 
 # ---------------------------------------------------------------------------
-# 8. Status summary
+# 10. Status summary
 # ---------------------------------------------------------------------------
 echo ""
 echo "StornX deployed successfully!"
