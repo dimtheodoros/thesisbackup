@@ -1,13 +1,15 @@
 #!/bin/bash
-# cleanup-stornx.sh — Remove StornX OptiBalancer from both clusters
+# cleanup-stornx.sh — Remove StornX OptiBalancer + OptiScaler from both clusters
 #
-# Uninstalls StornX and kube-netlag, deletes StornX-managed DestinationRules,
-# and restores the original static locality DestinationRules.
+# Uninstalls StornX, the cross-cluster fallback controller, and kube-netlag.
+# Deletes StornX-managed DestinationRules and restores the original static
+# locality DestinationRules. Restores Deployments to Karmada propagation.
 # Run this BEFORE cleanup-monitoring.sh.
 set -euo pipefail
 
 WEST_KUBECONFIG="./.generated/kubeconfig-eu-west.yaml"
 NORTH_KUBECONFIG="./.generated/kubeconfig-eu-north.yaml"
+KARMADA_KUBECONFIG="./.generated/karmada/karmada-apiserver.config"
 NAMESPACE="online-boutique"
 STORNX_NS="stornx"
 
@@ -47,7 +49,22 @@ KUBECONFIG="$WEST_KUBECONFIG" kubectl delete secret stornx-federation-scrape-con
   -n "$NAMESPACE" --ignore-not-found=true
 
 # ---------------------------------------------------------------------------
-# 2. Uninstall StornX Helm release (removes StornX pod, kube-netlag DaemonSet,
+# 2. Remove cross-cluster fallback controller.
+#    ClusterRole and ClusterRoleBinding are cluster-scoped and must be deleted
+#    explicitly — they will not be removed when the stornx namespace is deleted.
+#    Namespace-scoped resources (Deployment, ConfigMap, ServiceAccount, Secret)
+#    are cleaned up by the namespace deletion in step 3.
+# ---------------------------------------------------------------------------
+echo "Removing cross-cluster fallback ClusterRole/ClusterRoleBinding from eu-west..."
+KUBECONFIG="$WEST_KUBECONFIG" kubectl delete clusterrole cross-cluster-fallback --ignore-not-found=true
+KUBECONFIG="$WEST_KUBECONFIG" kubectl delete clusterrolebinding cross-cluster-fallback --ignore-not-found=true
+
+echo "Removing cross-cluster fallback ClusterRole/ClusterRoleBinding from eu-north..."
+KUBECONFIG="$NORTH_KUBECONFIG" kubectl delete clusterrole cross-cluster-fallback --ignore-not-found=true
+KUBECONFIG="$NORTH_KUBECONFIG" kubectl delete clusterrolebinding cross-cluster-fallback --ignore-not-found=true
+
+# ---------------------------------------------------------------------------
+# 3. Uninstall StornX Helm release (removes StornX pod, kube-netlag DaemonSet,
 #    RBAC, ServiceAccount, PVC, and bootstrap CronJob)
 # ---------------------------------------------------------------------------
 echo "Uninstalling StornX Helm release from eu-west..."
@@ -57,8 +74,10 @@ echo "Uninstalling StornX Helm release from eu-north..."
 helm uninstall stornx --kubeconfig "$NORTH_KUBECONFIG" --namespace "$STORNX_NS" 2>/dev/null || true
 
 # ---------------------------------------------------------------------------
-# 3. Delete stornx namespace (cleans up any leftover resources including
-#    the bootstrap CronJob, its RBAC, and kube-netlag DaemonSet)
+# 4. Delete stornx namespace (cleans up any leftover resources including
+#    the bootstrap CronJob, its RBAC, kube-netlag DaemonSet, the fallback
+#    controller Deployment/ConfigMap/ServiceAccount, and the cross-cluster
+#    kubeconfig Secrets)
 # ---------------------------------------------------------------------------
 echo "Deleting '$STORNX_NS' namespace from eu-west..."
 KUBECONFIG="$WEST_KUBECONFIG" kubectl delete namespace "$STORNX_NS" --ignore-not-found=true
@@ -67,7 +86,7 @@ echo "Deleting '$STORNX_NS' namespace from eu-north..."
 KUBECONFIG="$NORTH_KUBECONFIG" kubectl delete namespace "$STORNX_NS" --ignore-not-found=true
 
 # ---------------------------------------------------------------------------
-# 4. Remove StornX-managed DestinationRules from the online-boutique namespace
+# 5. Remove StornX-managed DestinationRules from the online-boutique namespace
 # ---------------------------------------------------------------------------
 echo "Removing StornX-managed DestinationRules from eu-west..."
 for dr in "${STORNX_DRS[@]}"; do
@@ -80,7 +99,7 @@ for dr in "${STORNX_DRS[@]}"; do
 done
 
 # ---------------------------------------------------------------------------
-# 5. Remove the PodMonitors (kube-netlag and Istio graph scraper)
+# 6. Remove the PodMonitors (kube-netlag and Istio graph scraper)
 # ---------------------------------------------------------------------------
 echo "Removing PodMonitors from eu-west..."
 KUBECONFIG="$WEST_KUBECONFIG" kubectl delete podmonitor kube-netlag -n "$NAMESPACE" --ignore-not-found=true
@@ -91,7 +110,19 @@ KUBECONFIG="$NORTH_KUBECONFIG" kubectl delete podmonitor kube-netlag -n "$NAMESP
 KUBECONFIG="$NORTH_KUBECONFIG" kubectl delete podmonitor boutique-stornx-graph -n "$NAMESPACE" --ignore-not-found=true
 
 # ---------------------------------------------------------------------------
-# 6. Restore original static locality DestinationRules
+# 7. Restore Deployments to Karmada PropagationPolicy.
+#    Re-adds the apps/v1 Deployment resource selector that was removed by
+#    deploy-stornx.sh so Karmada resumes managing Deployment replica counts.
+#    Karmada will reconcile member clusters on its next cycle.
+# ---------------------------------------------------------------------------
+echo "Restoring Deployments to Karmada PropagationPolicy..."
+KUBECONFIG="$KARMADA_KUBECONFIG" kubectl patch propagationpolicy boutique-propagation \
+  -n "$NAMESPACE" --type=json \
+  -p='[{"op":"add","path":"/spec/resourceSelectors/0","value":{"apiVersion":"apps/v1","kind":"Deployment"}}]' \
+  2>/dev/null || echo "  WARNING: Could not restore PropagationPolicy (Karmada may be unavailable)."
+
+# ---------------------------------------------------------------------------
+# 8. Restore original static locality DestinationRules
 # ---------------------------------------------------------------------------
 echo "Restoring original locality DestinationRules on eu-west..."
 KUBECONFIG="$WEST_KUBECONFIG" kubectl apply -f manifests/online-boutique-locality.yaml
@@ -101,3 +132,4 @@ KUBECONFIG="$NORTH_KUBECONFIG" kubectl apply -f manifests/online-boutique-locali
 
 echo ""
 echo "StornX cleanup complete. Original locality DestinationRules restored."
+echo "Karmada will re-reconcile Deployment replica counts on its next cycle."

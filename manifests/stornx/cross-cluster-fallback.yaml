@@ -1,0 +1,373 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cross-cluster-fallback-script
+  namespace: stornx
+data:
+  controller.py: |
+    #!/usr/bin/env python3
+    """
+    Cross-cluster capacity fallback controller.
+
+    When OptiScaler on the local cluster cannot schedule a new replica due to
+    resource exhaustion (no node has freeToUse.cpu >= pod's requested CPU),
+    this controller increments the replica count on the other cluster instead.
+
+    Mirrors OptiScaler's condition 2 check (core/index.ts:157-164):
+      getNodesWithSufficientResources(podResources) returns empty list
+      => no node has (allocatable.cpu - requested.cpu) >= pod.requested.cpu
+
+    Runs continuously, polling every POLL_INTERVAL seconds.
+    """
+
+    import os
+    import time
+    import logging
+    from datetime import datetime, timedelta
+
+    import requests
+    from kubernetes import client as k8s_client, config as k8s_config
+    from kubernetes.client.rest import ApiException
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s %(message)s",
+    )
+    log = logging.getLogger("cross-cluster-fallback")
+
+    # ---------------------------------------------------------------------------
+    # Config
+    # ---------------------------------------------------------------------------
+    LOCAL_PROM_URL  = os.environ.get("LOCAL_PROM_URL",
+                                     "http://prometheus-operated.online-boutique.svc.cluster.local:9090")
+    UPPER_THRESHOLD = float(os.environ.get("UPPER_THRESHOLD", "0.80"))
+    MAX_REPLICAS    = int(os.environ.get("MAX_REPLICAS", "10"))
+    COOLDOWN_SEC    = int(os.environ.get("COOLDOWN_SECONDS", "300"))
+    NAMESPACE       = os.environ.get("NAMESPACE", "online-boutique")
+    POLL_INTERVAL   = int(os.environ.get("POLL_INTERVAL", "60"))
+    OTHER_KUBECONFIG = os.environ.get("OTHER_KUBECONFIG", "/etc/cross-cluster/kubeconfig")
+
+    # Per-deployment cooldown tracking: deployment_name -> datetime of last scale
+    _cooldowns: dict = {}
+
+    # ---------------------------------------------------------------------------
+    # Prometheus helpers
+    # ---------------------------------------------------------------------------
+    def prom_query(query: str) -> list:
+        try:
+            r = requests.get(
+                f"{LOCAL_PROM_URL}/api/v1/query",
+                params={"query": query},
+                timeout=10,
+            )
+            r.raise_for_status()
+            body = r.json()
+            if body.get("status") == "success":
+                return body["data"]["result"]
+        except Exception as exc:
+            log.warning("Prometheus query failed: %s", exc)
+        return []
+
+
+    def high_loaded_deployments() -> dict:
+        """
+        Returns {deployment_name: cpu_fraction} for deployments whose
+        average CPU utilisation across all replicas exceeds UPPER_THRESHOLD.
+
+        Uses container name as a proxy for deployment name — valid for Online
+        Boutique where container name == deployment name.
+        """
+        query = (
+            f'avg by (container) ('
+            f'  rate(container_cpu_usage_seconds_total{{'
+            f'    namespace="{NAMESPACE}",container!="",container!="POD"'
+            f'  }}[2m])'
+            f'  / on(pod, container) group_left() '
+            f'  container_spec_cpu_limit{{'
+            f'    namespace="{NAMESPACE}",container!="",container!="POD"'
+            f'  }}'
+            f')'
+        )
+        results = prom_query(query)
+        out = {}
+        for r in results:
+            name = r["metric"].get("container", "")
+            if not name:
+                continue
+            try:
+                val = float(r["value"][1])
+            except (IndexError, ValueError, KeyError):
+                continue
+            if val > UPPER_THRESHOLD:
+                out[name] = val
+        return out
+
+    # ---------------------------------------------------------------------------
+    # Kubernetes helpers
+    # ---------------------------------------------------------------------------
+    def parse_cpu_millicores(qty_str: str) -> float:
+        """Convert a Kubernetes CPU quantity string to millicores."""
+        s = str(qty_str).strip()
+        if s.endswith("m"):
+            return float(s[:-1])
+        if s.endswith("n"):
+            return float(s[:-1]) / 1_000_000
+        try:
+            return float(s) * 1000  # plain cores -> millicores
+        except ValueError:
+            return 0.0
+
+
+    def pod_cpu_request_millicores(core_api: k8s_client.CoreV1Api, name: str) -> float:
+        """
+        Return the CPU request (millicores) of a running pod belonging to `name`.
+        Looks for pods with label app=<name>. Falls back to 100m on error.
+        """
+        try:
+            pods = core_api.list_namespaced_pod(
+                NAMESPACE,
+                label_selector=f"app={name}",
+                field_selector="status.phase=Running",
+            )
+            for pod in pods.items:
+                for c in pod.spec.containers:
+                    if c.name == name and c.resources and c.resources.requests:
+                        return parse_cpu_millicores(c.resources.requests.get("cpu", "100m"))
+        except ApiException as exc:
+            log.warning("Could not get pod CPU request for %s: %s", name, exc)
+        return 100.0  # safe default
+
+
+    def local_cluster_has_capacity(core_api: k8s_client.CoreV1Api, pod_cpu_m: float) -> bool:
+        """
+        Returns True if at least one node has:
+          (allocatable.cpu - sum_of_requested_cpu_on_node) >= pod_cpu_m
+
+        This mirrors OptiScaler's getNodesWithSufficientResources() check.
+        Returns True on API errors to avoid false-positive triggers.
+        """
+        try:
+            nodes = core_api.list_node()
+        except ApiException as exc:
+            log.warning("list_node failed: %s", exc)
+            return True
+
+        allocatable: dict = {}
+        for node in nodes.items:
+            n = node.metadata.name
+            allocatable[n] = parse_cpu_millicores(
+                node.status.allocatable.get("cpu", "0")
+            )
+
+        requested: dict = {n: 0.0 for n in allocatable}
+        try:
+            all_pods = core_api.list_pod_for_all_namespaces(
+                field_selector="status.phase=Running"
+            )
+            for pod in all_pods.items:
+                node_name = pod.spec.node_name
+                if node_name not in requested:
+                    continue
+                for c in pod.spec.containers:
+                    if c.resources and c.resources.requests:
+                        requested[node_name] += parse_cpu_millicores(
+                            c.resources.requests.get("cpu", "0m")
+                        )
+        except ApiException as exc:
+            log.warning("list_pod_for_all_namespaces failed: %s", exc)
+            return True
+
+        for node_name, alloc in allocatable.items():
+            free = alloc - requested.get(node_name, 0.0)
+            if free >= pod_cpu_m:
+                return True
+
+        return False
+
+
+    def other_cluster_replicas(apps_api: k8s_client.AppsV1Api, name: str) -> int:
+        """Returns current replica count on the other cluster, or -1 on error."""
+        try:
+            dep = apps_api.read_namespaced_deployment(name, NAMESPACE)
+            return dep.spec.replicas or 0
+        except ApiException as exc:
+            log.warning("read_namespaced_deployment(%s) on other cluster failed: %s", name, exc)
+            return -1
+
+
+    def scale_other_cluster(apps_api: k8s_client.AppsV1Api, name: str, current: int):
+        new_count = current + 1
+        try:
+            apps_api.patch_namespaced_deployment_scale(
+                name, NAMESPACE, {"spec": {"replicas": new_count}}
+            )
+            log.info("[FALLBACK] %s: scaled other cluster %d -> %d", name, current, new_count)
+        except ApiException as exc:
+            log.error("Failed to scale %s on other cluster: %s", name, exc)
+
+
+    def cooldown_ok(name: str) -> bool:
+        last = _cooldowns.get(name)
+        return last is None or (datetime.now() - last) > timedelta(seconds=COOLDOWN_SEC)
+
+    # ---------------------------------------------------------------------------
+    # Main loop
+    # ---------------------------------------------------------------------------
+    def main():
+        # Local cluster — in-cluster service account
+        k8s_config.load_incluster_config()
+        local_core = k8s_client.CoreV1Api()
+
+        # Other cluster — kubeconfig mounted from Secret
+        other_cfg = k8s_client.Configuration()
+        k8s_config.load_kube_config(
+            config_file=OTHER_KUBECONFIG,
+            client_configuration=other_cfg,
+        )
+        other_client = k8s_client.ApiClient(configuration=other_cfg)
+        other_apps   = k8s_client.AppsV1Api(api_client=other_client)
+
+        log.info(
+            "Started. prom=%s threshold=%.0f%% max_replicas=%d cooldown=%ds poll=%ds",
+            LOCAL_PROM_URL, UPPER_THRESHOLD * 100, MAX_REPLICAS, COOLDOWN_SEC, POLL_INTERVAL,
+        )
+
+        while True:
+            try:
+                overloaded = high_loaded_deployments()
+                if not overloaded:
+                    log.debug("No overloaded deployments.")
+                else:
+                    log.info("Overloaded: %s", list(overloaded.keys()))
+
+                for dep_name, cpu_val in overloaded.items():
+                    pod_cpu_m = pod_cpu_request_millicores(local_core, dep_name)
+
+                    if local_cluster_has_capacity(local_core, pod_cpu_m):
+                        log.debug("%s: local capacity available, OptiScaler handles it.", dep_name)
+                        continue
+
+                    log.info(
+                        "%s: CPU=%.1f%%, no local node has %.0fm CPU free. "
+                        "Checking other cluster.",
+                        dep_name, cpu_val * 100, pod_cpu_m,
+                    )
+
+                    if not cooldown_ok(dep_name):
+                        log.info("%s: cooldown active, skipping.", dep_name)
+                        continue
+
+                    current = other_cluster_replicas(other_apps, dep_name)
+                    if current < 0:
+                        continue
+                    if current >= MAX_REPLICAS:
+                        log.warning("%s: other cluster already at max replicas (%d).", dep_name, MAX_REPLICAS)
+                        continue
+
+                    scale_other_cluster(other_apps, dep_name, current)
+                    _cooldowns[dep_name] = datetime.now()
+
+            except Exception as exc:
+                log.error("Unhandled error in main loop: %s", exc, exc_info=True)
+
+            time.sleep(POLL_INTERVAL)
+
+
+    if __name__ == "__main__":
+        main()
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cross-cluster-fallback
+  namespace: stornx
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: cross-cluster-fallback
+rules:
+  - apiGroups: [""]
+    resources: ["nodes", "pods"]
+    verbs: ["get", "list"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list"]
+  - apiGroups: ["apps"]
+    resources: ["deployments/scale"]
+    verbs: ["get", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: cross-cluster-fallback
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cross-cluster-fallback
+subjects:
+  - kind: ServiceAccount
+    name: cross-cluster-fallback
+    namespace: stornx
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cross-cluster-fallback
+  namespace: stornx
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cross-cluster-fallback
+  template:
+    metadata:
+      labels:
+        app: cross-cluster-fallback
+    spec:
+      serviceAccountName: cross-cluster-fallback
+      containers:
+        - name: controller
+          image: python:3.11-slim
+          command:
+            - /bin/sh
+            - -c
+            - |
+              pip install kubernetes requests --quiet --no-cache-dir \
+                && python /app/controller.py
+          env:
+            - name: LOCAL_PROM_URL
+              value: "http://prometheus-operated.online-boutique.svc.cluster.local:9090"
+            - name: UPPER_THRESHOLD
+              value: "0.80"
+            - name: MAX_REPLICAS
+              value: "10"
+            - name: COOLDOWN_SECONDS
+              value: "300"
+            - name: NAMESPACE
+              value: "online-boutique"
+            - name: POLL_INTERVAL
+              value: "60"
+            - name: OTHER_KUBECONFIG
+              value: "/etc/cross-cluster/kubeconfig"
+          volumeMounts:
+            - name: script
+              mountPath: /app/controller.py
+              subPath: controller.py
+            - name: other-kubeconfig
+              mountPath: /etc/cross-cluster/kubeconfig
+              subPath: kubeconfig
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+      volumes:
+        - name: script
+          configMap:
+            name: cross-cluster-fallback-script
+        - name: other-kubeconfig
+          secret:
+            secretName: cross-cluster-kubeconfig

@@ -1,5 +1,8 @@
 # StornX Helm values — eu-north cluster
-# Identical to values-west.yaml: same internal Prometheus service name on both clusters.
+# OptiBalancer + OptiScaler: both engines active. OptiScaler manages local replica
+# counts; the cross-cluster-fallback controller handles spillover to eu-west when
+# local resources are exhausted. FederatedHPA is not used in this configuration.
+# Identical Prometheus URL to values-west.yaml: same Helm release name on each cluster.
 
 image:
   tag: "1.1.1"
@@ -28,10 +31,6 @@ config:
     ftMaxZones: "3"
 
 extraEnv:
-  - name: SCALER_RESPECT_HPA
-    value: "true"
-  - name: SCALER_RESPECT_PDB
-    value: "true"
   - name: DATA_PATH
     value: "/opt/data"
 

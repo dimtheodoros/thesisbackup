@@ -1,17 +1,21 @@
 #!/bin/bash
-# deploy-stornx.sh — Layer 3: StornX OptiBalancer integration
+# deploy-stornx.sh — Layer 3: StornX OptiBalancer + OptiScaler integration
 #
 # Deploys one StornX instance per cluster in the 'stornx' namespace.
-# Each instance optimises Istio DestinationRule traffic weights for the
-# online-boutique namespace using real-time Prometheus + Istio metrics.
+# Both OptiBalancer (Istio DR weight optimisation) and OptiScaler (per-cluster
+# pod placement and replica scaling) are active. FederatedHPA is NOT used.
+#
+# Also deploys the cross-cluster-fallback controller on each cluster, which
+# increments the OTHER cluster's replica count when the local cluster is
+# resource-exhausted and OptiScaler cannot schedule a new replica locally.
 #
 # Prerequisites: deploy-karmada.sh and deploy-monitoring.sh must have run first.
-# OptiScaler is disabled (SCALER_RESPECT_HPA=true); FederatedHPA continues to
-# handle cross-cluster pod scaling.
+# Do NOT apply experiments/manifests/scenario4-north-stress-fhpa.yaml.
 set -euo pipefail
 
 WEST_KUBECONFIG="./.generated/kubeconfig-eu-west.yaml"
 NORTH_KUBECONFIG="./.generated/kubeconfig-eu-north.yaml"
+KARMADA_KUBECONFIG="./.generated/karmada/karmada-apiserver.config"
 NAMESPACE="online-boutique"
 STORNX_NS="stornx"
 
@@ -25,7 +29,7 @@ if [ ! -d "$STORNX_CHART" ]; then
   exit 1
 fi
 
-echo "StornX integration — deploying OptiBalancer to both clusters"
+echo "StornX integration — deploying OptiBalancer + OptiScaler to both clusters"
 echo "Chart: $STORNX_CHART"
 echo ""
 
@@ -120,7 +124,74 @@ KUBECONFIG="$WEST_KUBECONFIG" kubectl apply -f manifests/stornx/bootstrap-cronjo
 KUBECONFIG="$NORTH_KUBECONFIG" kubectl apply -f manifests/stornx/bootstrap-cronjob.yaml
 
 # ---------------------------------------------------------------------------
-# 8. Bootstrap OptiBalancer on both clusters.
+# 8. Detach Deployments from Karmada so OptiScaler has uncontested control
+#    over spec.replicas on each member cluster.
+#
+#    In Karmada's Duplicated mode the propagation controller reconciles
+#    member-cluster Deployments back to the Karmada-layer replica count
+#    within seconds of any change — which would immediately undo every
+#    OptiScaler scale-up/down. Removing the Deployment resource selector
+#    stops this reconciliation. Services and ServiceAccounts remain managed
+#    by Karmada and are unaffected.
+#
+#    Because Karmada garbage-collects resources that are no longer selected
+#    by any PropagationPolicy, we save the current Deployment specs first,
+#    patch the policy, wait for GC to complete, then re-apply the Deployments
+#    directly to each cluster so they survive independently.
+# ---------------------------------------------------------------------------
+echo ""
+echo "Detaching Deployments from Karmada propagation (OptiScaler takes over)..."
+
+# Save Deployment specs from Karmada before the policy patch triggers GC
+DEPS_YAML=$(KUBECONFIG="$KARMADA_KUBECONFIG" kubectl get deployments \
+  -n "$NAMESPACE" -o yaml 2>/dev/null)
+
+# Remove the apps/v1 Deployment entry (index 0) from resourceSelectors
+KUBECONFIG="$KARMADA_KUBECONFIG" kubectl patch propagationpolicy boutique-propagation \
+  -n "$NAMESPACE" --type=json \
+  -p='[{"op":"remove","path":"/spec/resourceSelectors/0"}]'
+
+echo "  Waiting 30s for Karmada GC to process the policy change..."
+sleep 30
+
+# Re-apply Deployments directly to each cluster; they are now self-managed
+echo "$DEPS_YAML" | KUBECONFIG="$WEST_KUBECONFIG" kubectl apply -f - -n "$NAMESPACE"
+echo "$DEPS_YAML" | KUBECONFIG="$NORTH_KUBECONFIG" kubectl apply -f - -n "$NAMESPACE"
+echo "  Deployments applied directly to both clusters."
+
+# ---------------------------------------------------------------------------
+# 9. Create cross-cluster kubeconfig Secrets.
+#    Each cluster's fallback controller needs credentials for the OTHER cluster
+#    so it can patch Deployments there when local capacity is exhausted.
+# ---------------------------------------------------------------------------
+echo ""
+echo "Creating cross-cluster kubeconfig Secrets..."
+
+KUBECONFIG="$WEST_KUBECONFIG" kubectl create secret generic cross-cluster-kubeconfig \
+  -n "$STORNX_NS" --from-file=kubeconfig="$NORTH_KUBECONFIG" \
+  --dry-run=client -o yaml \
+  | KUBECONFIG="$WEST_KUBECONFIG" kubectl apply -f -
+
+KUBECONFIG="$NORTH_KUBECONFIG" kubectl create secret generic cross-cluster-kubeconfig \
+  -n "$STORNX_NS" --from-file=kubeconfig="$WEST_KUBECONFIG" \
+  --dry-run=client -o yaml \
+  | KUBECONFIG="$NORTH_KUBECONFIG" kubectl apply -f -
+
+echo "  eu-west gets north kubeconfig, eu-north gets west kubeconfig."
+
+# ---------------------------------------------------------------------------
+# 10. Deploy the cross-cluster fallback controller on both clusters.
+#     Polls every 60s; when a deployment is CPU-saturated and no local node
+#     has sufficient free CPU, increments replicas on the other cluster.
+#     5-minute per-deployment cooldown prevents rapid churn.
+# ---------------------------------------------------------------------------
+echo ""
+echo "Deploying cross-cluster fallback controller to both clusters..."
+KUBECONFIG="$WEST_KUBECONFIG" kubectl apply -f manifests/stornx/cross-cluster-fallback.yaml
+KUBECONFIG="$NORTH_KUBECONFIG" kubectl apply -f manifests/stornx/cross-cluster-fallback.yaml
+
+# ---------------------------------------------------------------------------
+# 11. Bootstrap OptiBalancer on both clusters.
 #
 #    OptiBalancer only runs via the normal threshold path when services are
 #    heavily loaded; with single-replica boutique services at idle it never
@@ -218,10 +289,10 @@ echo "Bootstrap complete. OptiBalancer will create DestinationRules on the next"
 echo "cron cycle (within 60 seconds) for both clusters."
 
 # ---------------------------------------------------------------------------
-# 9. Status summary
+# 12. Status summary
 # ---------------------------------------------------------------------------
 echo ""
-echo "StornX deployed successfully!"
+echo "StornX (OptiBalancer + OptiScaler) deployed successfully!"
 echo "--------------------------------------------------"
 echo "StornX pods (eu-west):"
 KUBECONFIG="$WEST_KUBECONFIG" kubectl get pods -n "$STORNX_NS" -l app.kubernetes.io/name=stornx 2>/dev/null || true
@@ -229,9 +300,23 @@ echo ""
 echo "StornX pods (eu-north):"
 KUBECONFIG="$NORTH_KUBECONFIG" kubectl get pods -n "$STORNX_NS" -l app.kubernetes.io/name=stornx 2>/dev/null || true
 echo ""
+echo "Cross-cluster fallback controller (eu-west):"
+KUBECONFIG="$WEST_KUBECONFIG" kubectl get pods -n "$STORNX_NS" -l app=cross-cluster-fallback 2>/dev/null || true
+echo ""
+echo "Cross-cluster fallback controller (eu-north):"
+KUBECONFIG="$NORTH_KUBECONFIG" kubectl get pods -n "$STORNX_NS" -l app=cross-cluster-fallback 2>/dev/null || true
+echo ""
 echo "kube-netlag DaemonSet (eu-west, one pod per node):"
 KUBECONFIG="$WEST_KUBECONFIG" kubectl get ds -n "$STORNX_NS" 2>/dev/null || true
+echo ""
+echo "PropagationPolicy (Deployments should NOT appear in resourceSelectors):"
+KUBECONFIG="$KARMADA_KUBECONFIG" kubectl get propagationpolicy boutique-propagation \
+  -n "$NAMESPACE" -o jsonpath='{.spec.resourceSelectors}' 2>/dev/null || true
+echo ""
 echo ""
 echo "Verify DestinationRules (wait ~60s after bootstrap):"
 echo "  kubectl get destinationrule -n $NAMESPACE --kubeconfig $WEST_KUBECONFIG"
 echo "  kubectl get destinationrule -n $NAMESPACE --kubeconfig $NORTH_KUBECONFIG"
+echo ""
+echo "NOTE: Do NOT apply experiments/manifests/scenario4-north-stress-fhpa.yaml"
+echo "      OptiScaler manages scaling; FederatedHPA is not active in this setup."

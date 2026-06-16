@@ -1,5 +1,7 @@
 # StornX Helm values — eu-west cluster
-# OptiBalancer only: SCALER_RESPECT_HPA=true defers all scaling to FederatedHPA.
+# OptiBalancer + OptiScaler: both engines active. OptiScaler manages local replica
+# counts; the cross-cluster-fallback controller handles spillover to eu-north when
+# local resources are exhausted. FederatedHPA is not used in this configuration.
 # Prometheus, Istio, metrics-server and Kiali are already installed; only kube-netlag is new.
 
 image:
@@ -29,10 +31,6 @@ config:
     ftMaxZones: "3"
 
 extraEnv:
-  - name: SCALER_RESPECT_HPA
-    value: "true"
-  - name: SCALER_RESPECT_PDB
-    value: "true"
   # Align app data path with the PVC mount below
   - name: DATA_PATH
     value: "/opt/data"
