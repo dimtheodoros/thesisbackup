@@ -31,18 +31,19 @@ subjects:
     name: stornx-bootstrap
     namespace: stornx
 ---
-# Repopulates /opt/data/deploys/deploys.json every 3 minutes.
+# Repopulates /opt/data/deploys/deploys.json every 5 minutes.
 # StornX clears the file after each OptiBalancer run; this keeps it populated
-# so OptiBalancer fires periodically. 3-minute interval gives Istio's EDS
-# enough time to reconcile endpoint state between DR updates (typically 10-30s),
-# avoiding the "no healthy upstream" race that occurs with 1-minute updates.
+# so OptiBalancer fires periodically. 5-minute interval is the minimum safe
+# cadence: OptiBalancer takes ~1-2 min to process and patch DRs, after which
+# Istio needs ~30s to reconcile EDS. Anything shorter risks a "no healthy
+# upstream" race where Envoy sees zero endpoints during EDS reconciliation.
 apiVersion: batch/v1
 kind: CronJob
 metadata:
   name: stornx-bootstrap
   namespace: stornx
 spec:
-  schedule: "*/3 * * * *"
+  schedule: "*/5 * * * *"
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 1
   failedJobsHistoryLimit: 1
