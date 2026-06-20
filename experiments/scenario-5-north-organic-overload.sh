@@ -32,8 +32,7 @@ cleanup() {
   fi
   if [ "$LOAD_CHANGED" = "true" ]; then
     log_info "Restoring loadgenerator to 10 users..."
-    KUBECONFIG="$KARMADA_KUBECONFIG" kubectl set env deployment/loadgenerator \
-      -n "$NAMESPACE" USERS="10" SPAWN_RATE="1" 2>/dev/null || true
+    set_west_load_users 10 2>/dev/null || true
   fi
   if [ "$FHPA_APPLIED" = "true" ]; then
     log_info "Removing FederatedHPAs..."
@@ -49,18 +48,22 @@ trap cleanup EXIT INT TERM
 check_prerequisites
 start_karmada_portforward
 
-log_phase "SETUP" "Applying FederatedHPAs (minReplicas=1, CPU target: 40%)"
-KUBECONFIG="$KARMADA_KUBECONFIG" kubectl apply \
-  -f experiments/manifests/scenario4-north-stress-fhpa.yaml
-FHPA_APPLIED=true
-log_info "Waiting 30s for FederatedHPA propagation..."
-sleep 30
+if karmada_owns_deployments; then
+  log_phase "SETUP" "Applying FederatedHPAs (minReplicas=1, CPU target: 40%)"
+  KUBECONFIG="$KARMADA_KUBECONFIG" kubectl apply \
+    -f experiments/manifests/scenario4-north-stress-fhpa.yaml
+  FHPA_APPLIED=true
+  log_info "Waiting 30s for FederatedHPA propagation..."
+  sleep 30
+else
+  log_phase "SETUP" "Skipping FederatedHPAs — OptiScaler manages replicas directly (Deployments detached from Karmada)"
+fi
 
 resolve_north_prometheus
 start_west_prometheus_portforward
 write_csv_header "$RESULT_FILE"
 
-log_phase "SETUP" "Deploying north Locust LoadTestShape (one pod restart — shape clock starts at T=0)"
+log_phase "SETUP" "Deploying north Locust LoadTestShape (shape clock starts at T=0)"
 apply_north_locust_shape; SHAPE_APPLIED=true
 # North loadgenerator is now Running with the custom shape. The shape's internal
 # clock started at pod boot. The script's phase durations below are sized to match
@@ -69,7 +72,7 @@ apply_north_locust_shape; SHAPE_APPLIED=true
 log_phase "BASELINE" "2 min — north shape T=0–120s (10 users), west at 10 users"
 collect_metrics_loop "$RESULT_FILE" "baseline" 120
 
-set_load_users 100; LOAD_CHANGED=true
+set_west_load_users 100; LOAD_CHANGED=true
 # North shape transitions to 100 users at T=120s independently.
 log_phase "RAMP_SYMMETRIC" "3 min — north shape T≈120–300s (100 users), west=100"
 collect_metrics_loop "$RESULT_FILE" "ramp_symmetric" 180
@@ -86,18 +89,20 @@ collect_metrics_loop "$RESULT_FILE" "north_peak" 300
 log_phase "RECOVERY" "4 min — north shape T≈900–1140s (100 users), Istio reinstates north endpoints"
 collect_metrics_loop "$RESULT_FILE" "recovery" 240
 
-set_load_users 10; LOAD_CHANGED=false
+set_west_load_users 10; LOAD_CHANGED=false
 # North shape transitions to 10 users at T=1140s automatically.
-log_phase "RAMP_DOWN" "2 min — north shape T≈1140–1260s (10 users), FederatedHPA scales back"
+log_phase "RAMP_DOWN" "2 min — north shape T≈1140–1260s (10 users), replicas scale back down"
 collect_metrics_loop "$RESULT_FILE" "ramp_down" 120
 
 log_info "Removing north shape OverridePolicy and ConfigMap..."
 remove_north_locust_shape; SHAPE_APPLIED=false
 
-log_info "Removing FederatedHPAs..."
-KUBECONFIG="$KARMADA_KUBECONFIG" kubectl delete federatedhpa \
-  -n "$NAMESPACE" --all --ignore-not-found
-FHPA_APPLIED=false
+if [ "$FHPA_APPLIED" = "true" ]; then
+  log_info "Removing FederatedHPAs..."
+  KUBECONFIG="$KARMADA_KUBECONFIG" kubectl delete federatedhpa \
+    -n "$NAMESPACE" --all --ignore-not-found
+  FHPA_APPLIED=false
+fi
 
 echo ""
 log_info "Scenario 5 complete. Results saved to: $RESULT_FILE"

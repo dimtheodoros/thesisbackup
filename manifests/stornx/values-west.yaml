@@ -5,7 +5,8 @@
 # Prometheus, Istio, metrics-server and Kiali are already installed; only kube-netlag is new.
 
 image:
-  tag: "1.1.1"
+  repository: "928743223741.dkr.ecr.eu-west-1.amazonaws.com/stornx-fork"
+  tag: "failover-v2"
 
 imagePullSecrets: []
 
@@ -16,7 +17,7 @@ config:
   cronjobExpression: "* * * * *"
   localityLabelsCron: "* * * * *"
   metricsType: "cpu"
-  metricsUpperThreshold: "80"
+  metricsUpperThreshold: "60"
   metricsLowerThreshold: "20"
   responseTimeThreshold: "100"
   cpuWeight: "50"
@@ -34,6 +35,10 @@ extraEnv:
   # Align app data path with the PVC mount below
   - name: DATA_PATH
     value: "/opt/data"
+  # Remote cluster's region — enables localityLbSetting.failover instead of
+  # distribute, so Istio actually fails over to eu-north on outlier ejection.
+  - name: FAILOVER_REGION
+    value: "eu-north-1"
 
 persistence:
   enabled: true

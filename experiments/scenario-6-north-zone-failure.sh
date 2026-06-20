@@ -14,8 +14,7 @@ LOAD_CHANGED=false
 cleanup() {
   [ "$ZONE_DRAINED" = "true" ] && uncordon_north_node "$DRAINED_NODE" 2>/dev/null || true
   [ "$LOAD_CHANGED" = "true" ] && \
-    KUBECONFIG="$KARMADA_KUBECONFIG" kubectl set env deployment/loadgenerator \
-      -n "$NAMESPACE" USERS=10 SPAWN_RATE=2 2>/dev/null || true
+    set_load_users 10 2>/dev/null || true
   stop_west_prometheus_portforward
   stop_karmada_portforward
   log_info "Results: ${RESULT_FILE}"

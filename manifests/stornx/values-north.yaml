@@ -5,7 +5,8 @@
 # Identical Prometheus URL to values-west.yaml: same Helm release name on each cluster.
 
 image:
-  tag: "1.1.1"
+  repository: "928743223741.dkr.ecr.eu-west-1.amazonaws.com/stornx-fork"
+  tag: "failover-v2"
 
 imagePullSecrets: []
 
@@ -16,7 +17,7 @@ config:
   cronjobExpression: "* * * * *"
   localityLabelsCron: "* * * * *"
   metricsType: "cpu"
-  metricsUpperThreshold: "80"
+  metricsUpperThreshold: "60"
   metricsLowerThreshold: "20"
   responseTimeThreshold: "100"
   cpuWeight: "50"
@@ -33,6 +34,10 @@ config:
 extraEnv:
   - name: DATA_PATH
     value: "/opt/data"
+  # Remote cluster's region — enables localityLbSetting.failover instead of
+  # distribute, so Istio actually fails over to eu-west on outlier ejection.
+  - name: FAILOVER_REGION
+    value: "eu-west-1"
 
 persistence:
   enabled: true

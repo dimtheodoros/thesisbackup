@@ -159,8 +159,23 @@ KUBECONFIG="$KARMADA_KUBECONFIG" kubectl patch propagationpolicy boutique-propag
   -p='[{"op":"test","path":"/spec/resourceSelectors/0/kind","value":"Deployment"},{"op":"remove","path":"/spec/resourceSelectors/0"}]' \
   2>/dev/null || echo "  Deployment selector already absent from PropagationPolicy — skipping (already detached)."
 
-echo "  Waiting 30s for Karmada GC to process the policy change..."
-sleep 30
+# Narrowing the selector does NOT retroactively release resources already
+# bound under the old policy — Karmada keeps reconciling existing
+# ResourceBindings regardless of the current selector, which silently
+# reverts any direct kubectl edit on the member cluster within seconds.
+# Deleting the Deployment-kind bindings is what actually releases ownership
+# (cascades to delete the Works and the propagated member-cluster objects,
+# since PreserveResourcesOnDeletion isn't set) — the re-apply below then
+# recreates them as independent, self-managed objects.
+echo "  Deleting stale Deployment ResourceBindings so Karmada releases ownership..."
+KUBECONFIG="$KARMADA_KUBECONFIG" kubectl get resourcebindings -n "$NAMESPACE" -o json \
+  | jq -r '.items[] | select(.spec.resource.kind=="Deployment") | .metadata.name' \
+  | while read -r rb; do
+      [ -n "$rb" ] && KUBECONFIG="$KARMADA_KUBECONFIG" kubectl delete resourcebinding "$rb" -n "$NAMESPACE" --ignore-not-found
+    done
+
+echo "  Waiting 20s for the binding deletion to propagate to both clusters..."
+sleep 20
 
 CLEAN_DEPS=$(echo "$DEPS_JSON" | jq '{
   apiVersion: "v1",

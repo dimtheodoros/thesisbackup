@@ -17,9 +17,7 @@ LOAD_CHANGED=false
 
 cleanup() {
   if [ "$LOAD_CHANGED" = "true" ]; then
-    log_info "Restoring loadgenerator to 10 users..."
-    KUBECONFIG="$KARMADA_KUBECONFIG" kubectl set env deployment/loadgenerator \
-      -n "$NAMESPACE" USERS="10" SPAWN_RATE="1" 2>/dev/null || true
+    set_load_users 10 2>/dev/null || true
   fi
   if [ "$FHPA_APPLIED" = "true" ]; then
     log_info "Removing FederatedHPAs..."

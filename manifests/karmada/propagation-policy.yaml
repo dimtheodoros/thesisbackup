@@ -9,6 +9,8 @@ spec:
   resourceSelectors:
   - apiVersion: apps/v1
     kind: Deployment
+  - apiVersion: apps/v1
+    kind: StatefulSet
   - apiVersion: v1
     kind: Service
   - apiVersion: v1

@@ -27,14 +27,27 @@ metadata:
   {{- end }}
 ---
 {{- end }}
-apiVersion: apps/v1
-kind: Deployment
+apiVersion: v1
+kind: Service
 metadata:
   name: {{ .Values.loadGenerator.name }}
   namespace: {{ .Release.Namespace }}
   labels:
     app: {{ .Values.loadGenerator.name }}
 spec:
+  clusterIP: None
+  selector:
+    app: {{ .Values.loadGenerator.name }}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ .Values.loadGenerator.name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: {{ .Values.loadGenerator.name }}
+spec:
+  serviceName: {{ .Values.loadGenerator.name }}
   selector:
     matchLabels:
       app: {{ .Values.loadGenerator.name }}

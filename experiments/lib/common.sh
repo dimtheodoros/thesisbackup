@@ -205,14 +205,20 @@ wait_for_deployments_ready() {
   local timeout="${1:-300}" elapsed=0
   log_info "Waiting for all deployments to be ready (timeout: ${timeout}s)..."
   while [ "$elapsed" -lt "$timeout" ]; do
-    local uw en
+    local uw en sw sn
     uw=$(KUBECONFIG="$WEST_KUBECONFIG" kubectl get deployments -n "$NAMESPACE" \
       -o jsonpath='{range .items[*]}{.status.unavailableReplicas}{"\n"}{end}' 2>/dev/null \
       | (grep -vc "^0*$" || true))
     en=$(KUBECONFIG="$NORTH_KUBECONFIG" kubectl get deployments -n "$NAMESPACE" \
       -o jsonpath='{range .items[*]}{.status.unavailableReplicas}{"\n"}{end}' 2>/dev/null \
       | (grep -vc "^0*$" || true))
-    if [ "${uw:-0}" -eq 0 ] && [ "${en:-0}" -eq 0 ]; then
+    sw=$(KUBECONFIG="$WEST_KUBECONFIG" kubectl get statefulsets -n "$NAMESPACE" \
+      -o jsonpath='{range .items[*]}{.status.replicas}{" "}{.status.readyReplicas}{"\n"}{end}' 2>/dev/null \
+      | awk '$1 != $2' | wc -l | tr -d ' ')
+    sn=$(KUBECONFIG="$NORTH_KUBECONFIG" kubectl get statefulsets -n "$NAMESPACE" \
+      -o jsonpath='{range .items[*]}{.status.replicas}{" "}{.status.readyReplicas}{"\n"}{end}' 2>/dev/null \
+      | awk '$1 != $2' | wc -l | tr -d ' ')
+    if [ "${uw:-0}" -eq 0 ] && [ "${en:-0}" -eq 0 ] && [ "${sw:-0}" -eq 0 ] && [ "${sn:-0}" -eq 0 ]; then
       log_info "All deployments ready."; return 0
     fi
     sleep 10; elapsed=$((elapsed + 10))
@@ -222,11 +228,38 @@ wait_for_deployments_ready() {
 
 # ── Load control ──────────────────────────────────────────────────────────────
 
+# Detects whether Karmada still propagates Deployments (PropagationPolicy
+# selects kind:Deployment) or whether they've been detached for OptiScaler
+# (deploy-stornx.sh step 8). Same check pattern as cleanup-stornx.sh's
+# HAS_DEPLOYMENT guard. Single source of truth for dual-mode scenarios.
+karmada_owns_deployments() {
+  KUBECONFIG="$KARMADA_KUBECONFIG" kubectl get propagationpolicy boutique-propagation \
+    -n "$NAMESPACE" -o json 2>/dev/null \
+    | jq -e '.spec.resourceSelectors[] | select(.kind=="Deployment")' >/dev/null 2>&1
+}
+
 set_load_users() {
   local users="$1" spawn_rate
   spawn_rate="$((users / 5 > 0 ? users / 5 : 1))"
-  log_info "Setting loadgenerator to $users concurrent users (both clusters)..."
-  KUBECONFIG="$KARMADA_KUBECONFIG" kubectl set env deployment/loadgenerator \
+  log_info "Setting loadgenerator to $users concurrent users (both clusters, via Karmada)..."
+  KUBECONFIG="$KARMADA_KUBECONFIG" kubectl set env statefulset/loadgenerator \
+    -n "$NAMESPACE" USERS="$users" SPAWN_RATE="$spawn_rate"
+  sleep 20
+}
+
+# Like set_load_users, but only ever touches west — used by Scenario 5 where
+# north's load is governed independently by a mounted Locust LoadTestShape
+# (locustfile-north-shape.py ignores USERS/SPAWN_RATE entirely once mounted).
+# This still patches the shared base StatefulSet template (loadgenerator is
+# always Karmada-propagated); apply_north_locust_shape() pins north's env
+# values via override so base-template changes never reach north's computed
+# manifest and trigger an unwanted pod restart that would reset the shape's
+# internal clock.
+set_west_load_users() {
+  local users="$1" spawn_rate
+  spawn_rate="$((users / 5 > 0 ? users / 5 : 1))"
+  log_info "Setting WEST loadgenerator to $users users via Karmada (north's env is pinned by override)..."
+  KUBECONFIG="$KARMADA_KUBECONFIG" kubectl set env statefulset/loadgenerator \
     -n "$NAMESPACE" USERS="$users" SPAWN_RATE="$spawn_rate"
   sleep 20
 }
@@ -239,7 +272,7 @@ apply_north_locust_shape() {
     --dry-run=client -o yaml \
     | KUBECONFIG="$NORTH_KUBECONFIG" kubectl apply -f -
 
-  log_info "Applying north OverridePolicy (custom locustfile + volume mount)..."
+  log_info "Applying north OverridePolicy (custom locustfile + volume mount + pinned env)..."
   KUBECONFIG="$KARMADA_KUBECONFIG" kubectl apply -f - <<EOF
 apiVersion: policy.karmada.io/v1alpha1
 kind: OverridePolicy
@@ -249,7 +282,7 @@ metadata:
 spec:
   resourceSelectors:
   - apiVersion: apps/v1
-    kind: Deployment
+    kind: StatefulSet
     name: loadgenerator
   overrideRules:
   - targetCluster:
@@ -271,10 +304,16 @@ spec:
         value:
         - name: locustfile-custom
           mountPath: /loadgen-custom
+      - path: "/spec/template/spec/containers/0/env/1/value"
+        operator: replace
+        value: "10"
+      - path: "/spec/template/spec/containers/0/env/2/value"
+        operator: replace
+        value: "1"
 EOF
 
   log_info "Waiting for north loadgenerator rollout to complete (shape clock starts at pod boot)..."
-  KUBECONFIG="$NORTH_KUBECONFIG" kubectl rollout status deployment/loadgenerator \
+  KUBECONFIG="$NORTH_KUBECONFIG" kubectl rollout status statefulset/loadgenerator \
     -n "$NAMESPACE" --timeout=120s \
     || log_info "WARNING: rollout timed out — continuing."
   log_info "North loadgenerator is Running with custom shape."
