@@ -142,42 +142,127 @@ KUBECONFIG="$NORTH_KUBECONFIG" kubectl apply -f manifests/stornx/bootstrap-cronj
 echo ""
 echo "Detaching Deployments from Karmada propagation (OptiScaler takes over)..."
 
-# Save Deployment specs from Karmada before the policy patch triggers GC
-DEPS_YAML=$(KUBECONFIG="$KARMADA_KUBECONFIG" kubectl get deployments \
-  -n "$NAMESPACE" -o yaml 2>/dev/null)
+# Save Deployment specs from Karmada before the policy patch triggers GC.
+# Captured as JSON so resourceVersion/uid/managedFields/status can be stripped
+# with jq — Karmada's hub resourceVersion never matches a member cluster's own
+# resourceVersion sequence, so re-applying it as-is causes a 409 Conflict on
+# every Deployment.
+DEPS_JSON=$(KUBECONFIG="$KARMADA_KUBECONFIG" kubectl get deployments \
+  -n "$NAMESPACE" -o json 2>/dev/null)
 
-# Remove the apps/v1 Deployment entry (index 0) from resourceSelectors
+# Remove the apps/v1 Deployment entry from resourceSelectors. The "test" op
+# guards against re-running this script: if Deployment is no longer at index 0
+# (already detached by a prior run), the whole patch is rejected atomically and
+# nothing else in resourceSelectors is touched.
 KUBECONFIG="$KARMADA_KUBECONFIG" kubectl patch propagationpolicy boutique-propagation \
   -n "$NAMESPACE" --type=json \
-  -p='[{"op":"remove","path":"/spec/resourceSelectors/0"}]'
+  -p='[{"op":"test","path":"/spec/resourceSelectors/0/kind","value":"Deployment"},{"op":"remove","path":"/spec/resourceSelectors/0"}]' \
+  2>/dev/null || echo "  Deployment selector already absent from PropagationPolicy — skipping (already detached)."
 
 echo "  Waiting 30s for Karmada GC to process the policy change..."
 sleep 30
 
+CLEAN_DEPS=$(echo "$DEPS_JSON" | jq '{
+  apiVersion: "v1",
+  kind: "List",
+  items: [.items[] | del(
+    .metadata.resourceVersion,
+    .metadata.uid,
+    .metadata.creationTimestamp,
+    .metadata.generation,
+    .metadata.managedFields,
+    .metadata.selfLink,
+    .status
+  )]
+}')
+
 # Re-apply Deployments directly to each cluster; they are now self-managed
-echo "$DEPS_YAML" | KUBECONFIG="$WEST_KUBECONFIG" kubectl apply -f - -n "$NAMESPACE"
-echo "$DEPS_YAML" | KUBECONFIG="$NORTH_KUBECONFIG" kubectl apply -f - -n "$NAMESPACE"
+echo "$CLEAN_DEPS" | KUBECONFIG="$WEST_KUBECONFIG" kubectl apply -f - -n "$NAMESPACE"
+echo "$CLEAN_DEPS" | KUBECONFIG="$NORTH_KUBECONFIG" kubectl apply -f - -n "$NAMESPACE"
 echo "  Deployments applied directly to both clusters."
 
 # ---------------------------------------------------------------------------
 # 9. Create cross-cluster kubeconfig Secrets.
 #    Each cluster's fallback controller needs credentials for the OTHER cluster
 #    so it can patch Deployments there when local capacity is exhausted.
+#
+#    The admin kubeconfigs in .generated/ use AWS IAM exec-auth (`aws eks
+#    get-token`), which requires the AWS CLI plus IAM credentials mapped into
+#    that specific cluster's aws-auth — neither is available inside the
+#    fallback controller pod, and the other cluster's node IAM role is not
+#    mapped there. Instead, apply a scoped ServiceAccount + Role on each
+#    cluster and build a static, token-based kubeconfig for the other
+#    cluster's controller to mount — no exec plugin required.
 # ---------------------------------------------------------------------------
 echo ""
-echo "Creating cross-cluster kubeconfig Secrets..."
+echo "Setting up cross-cluster remote-access ServiceAccounts..."
+KUBECONFIG="$WEST_KUBECONFIG" kubectl apply -f manifests/stornx/cross-cluster-remote-access.yaml
+KUBECONFIG="$NORTH_KUBECONFIG" kubectl apply -f manifests/stornx/cross-cluster-remote-access.yaml
 
+_build_remote_kubeconfig() {
+  local kubeconfig="$1"
+  local cluster_name="$2"
+
+  local server ca token
+  server=$(KUBECONFIG="$kubeconfig" kubectl config view --minify --flatten \
+    -o jsonpath='{.clusters[0].cluster.server}')
+  ca=$(KUBECONFIG="$kubeconfig" kubectl config view --minify --flatten \
+    -o jsonpath='{.clusters[0].cluster.certificate-authority-data}')
+
+  local attempts=0
+  until token=$(KUBECONFIG="$kubeconfig" kubectl get secret cross-cluster-remote-token \
+      -n "$NAMESPACE" -o jsonpath='{.data.token}' 2>/dev/null) && [ -n "$token" ]; do
+    attempts=$((attempts + 1))
+    if [ "$attempts" -ge 20 ]; then
+      echo "  ERROR: token Secret for $cluster_name never populated." >&2
+      return 1
+    fi
+    sleep 2
+  done
+  token=$(echo "$token" | base64 -d)
+
+  cat <<EOF
+apiVersion: v1
+kind: Config
+clusters:
+- name: ${cluster_name}
+  cluster:
+    server: ${server}
+    certificate-authority-data: ${ca}
+contexts:
+- name: ${cluster_name}
+  context:
+    cluster: ${cluster_name}
+    user: cross-cluster-remote
+    namespace: ${NAMESPACE}
+current-context: ${cluster_name}
+users:
+- name: cross-cluster-remote
+  user:
+    token: ${token}
+EOF
+}
+
+echo "Building static kubeconfig for eu-north's remote-access ServiceAccount..."
+_build_remote_kubeconfig "$NORTH_KUBECONFIG" "eu-north" > /tmp/cross-cluster-kubeconfig-north.yaml
+
+echo "Building static kubeconfig for eu-west's remote-access ServiceAccount..."
+_build_remote_kubeconfig "$WEST_KUBECONFIG" "eu-west" > /tmp/cross-cluster-kubeconfig-west.yaml
+
+echo "Creating cross-cluster kubeconfig Secrets..."
 KUBECONFIG="$WEST_KUBECONFIG" kubectl create secret generic cross-cluster-kubeconfig \
-  -n "$STORNX_NS" --from-file=kubeconfig="$NORTH_KUBECONFIG" \
+  -n "$STORNX_NS" --from-file=kubeconfig=/tmp/cross-cluster-kubeconfig-north.yaml \
   --dry-run=client -o yaml \
   | KUBECONFIG="$WEST_KUBECONFIG" kubectl apply -f -
 
 KUBECONFIG="$NORTH_KUBECONFIG" kubectl create secret generic cross-cluster-kubeconfig \
-  -n "$STORNX_NS" --from-file=kubeconfig="$WEST_KUBECONFIG" \
+  -n "$STORNX_NS" --from-file=kubeconfig=/tmp/cross-cluster-kubeconfig-west.yaml \
   --dry-run=client -o yaml \
   | KUBECONFIG="$NORTH_KUBECONFIG" kubectl apply -f -
 
-echo "  eu-west gets north kubeconfig, eu-north gets west kubeconfig."
+rm -f /tmp/cross-cluster-kubeconfig-north.yaml /tmp/cross-cluster-kubeconfig-west.yaml
+
+echo "  eu-west gets a token-based kubeconfig for eu-north, and vice versa."
 
 # ---------------------------------------------------------------------------
 # 10. Deploy the cross-cluster fallback controller on both clusters.

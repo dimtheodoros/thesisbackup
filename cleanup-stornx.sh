@@ -63,6 +63,10 @@ echo "Removing cross-cluster fallback ClusterRole/ClusterRoleBinding from eu-nor
 KUBECONFIG="$NORTH_KUBECONFIG" kubectl delete clusterrole cross-cluster-fallback --ignore-not-found=true
 KUBECONFIG="$NORTH_KUBECONFIG" kubectl delete clusterrolebinding cross-cluster-fallback --ignore-not-found=true
 
+echo "Removing cross-cluster remote-access ServiceAccount/Role/RoleBinding/token from both clusters..."
+KUBECONFIG="$WEST_KUBECONFIG" kubectl delete -f manifests/stornx/cross-cluster-remote-access.yaml --ignore-not-found=true
+KUBECONFIG="$NORTH_KUBECONFIG" kubectl delete -f manifests/stornx/cross-cluster-remote-access.yaml --ignore-not-found=true
+
 # ---------------------------------------------------------------------------
 # 3. Uninstall StornX Helm release (removes StornX pod, kube-netlag DaemonSet,
 #    RBAC, ServiceAccount, PVC, and bootstrap CronJob)
@@ -116,10 +120,16 @@ KUBECONFIG="$NORTH_KUBECONFIG" kubectl delete podmonitor boutique-stornx-graph -
 #    Karmada will reconcile member clusters on its next cycle.
 # ---------------------------------------------------------------------------
 echo "Restoring Deployments to Karmada PropagationPolicy..."
-KUBECONFIG="$KARMADA_KUBECONFIG" kubectl patch propagationpolicy boutique-propagation \
-  -n "$NAMESPACE" --type=json \
-  -p='[{"op":"add","path":"/spec/resourceSelectors/0","value":{"apiVersion":"apps/v1","kind":"Deployment"}}]' \
-  2>/dev/null || echo "  WARNING: Could not restore PropagationPolicy (Karmada may be unavailable)."
+HAS_DEPLOYMENT=$(KUBECONFIG="$KARMADA_KUBECONFIG" kubectl get propagationpolicy boutique-propagation \
+  -n "$NAMESPACE" -o json 2>/dev/null | jq -e '.spec.resourceSelectors[] | select(.kind=="Deployment")' >/dev/null 2>&1 && echo "yes" || echo "no")
+if [ "$HAS_DEPLOYMENT" = "yes" ]; then
+  echo "  Deployment selector already present — skipping (already restored)."
+else
+  KUBECONFIG="$KARMADA_KUBECONFIG" kubectl patch propagationpolicy boutique-propagation \
+    -n "$NAMESPACE" --type=json \
+    -p='[{"op":"add","path":"/spec/resourceSelectors/0","value":{"apiVersion":"apps/v1","kind":"Deployment"}}]' \
+    2>/dev/null || echo "  WARNING: Could not restore PropagationPolicy (Karmada may be unavailable)."
+fi
 
 # ---------------------------------------------------------------------------
 # 8. Restore original static locality DestinationRules

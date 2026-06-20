@@ -1,0 +1,49 @@
+# RBAC + long-lived token for the OTHER cluster's cross-cluster-fallback
+# controller to act on Deployments here. Applied on each cluster; the
+# resulting token is read by deploy-stornx.sh and packaged into a static
+# kubeconfig (no AWS exec-auth, so no 'aws' CLI or IAM credentials needed
+# inside the fallback controller pod).
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cross-cluster-remote
+  namespace: online-boutique
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: cross-cluster-remote
+  namespace: online-boutique
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list"]
+  - apiGroups: ["apps"]
+    resources: ["deployments/scale"]
+    verbs: ["get", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: cross-cluster-remote
+  namespace: online-boutique
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: cross-cluster-remote
+subjects:
+  - kind: ServiceAccount
+    name: cross-cluster-remote
+    namespace: online-boutique
+---
+# Legacy-style long-lived token Secret. Explicitly creating this (rather than
+# relying on auto-mounted projected tokens) gives a non-expiring credential
+# suitable for the other cluster's mounted kubeconfig.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: cross-cluster-remote-token
+  namespace: online-boutique
+  annotations:
+    kubernetes.io/service-account.name: cross-cluster-remote
+type: kubernetes.io/service-account-token
