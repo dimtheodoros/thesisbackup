@@ -35,6 +35,13 @@ export const Config = {
     type: (process.env.METRICS_TYPE as MetricsType) ?? MetricsType.MEMORY,
     /** Target P95 response time threshold in milliseconds. Nodes exceeding this are penalized. */
     responseTimeThreshold: process.env.RESPONSE_TIME_THRESHOLD ? Number(process.env.RESPONSE_TIME_THRESHOLD) : 100,
+    /** P95 latency (ms) above which OptiScaler scales up regardless of CPU usage.
+     * Separate from responseTimeThreshold above: that's a continuous traffic-split
+     * scoring target (penalizes nodes gradually), this is a binary emergency gate —
+     * reusing the 100ms target here would fire on every cron tick under normal load. */
+    scaleLatencyThresholdMs: process.env.SCALE_LATENCY_THRESHOLD_MS
+      ? Number(process.env.SCALE_LATENCY_THRESHOLD_MS)
+      : 2000,
     weights: {
       CPU: process.env.CPU_WEIGHT ? Number(process.env.CPU_WEIGHT) : 0.5,
       Memory: process.env.MEMORY_WEIGHT ? Number(process.env.MEMORY_WEIGHT) : 0.5,

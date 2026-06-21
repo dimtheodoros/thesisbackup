@@ -8,6 +8,7 @@ import { logger } from '../config/logger.js';
 import { setup } from '../config/setup.js';
 import { getPodNodeResources } from '../utils.js';
 import { OptiBalancer } from './optiBalancer/index.js';
+import { getCooldownManager } from './optiScaler/cooldown.js';
 import { ScaleAction } from './optiScaler/enums.js';
 import { OptiScaler } from './optiScaler/index.js';
 
@@ -38,6 +39,7 @@ const k8sAdapter = new KubernetesAdapterImpl();
 const promAdapter = new PrometheusAdapterImpl();
 const fileSystem = new FileSystemHandler();
 const optiBalancer = new OptiBalancer(k8sAdapter, promAdapter, Config.metrics.type);
+const cooldownManager = getCooldownManager();
 
 export const TrafficScheduler = async () => {
   try {
@@ -105,6 +107,10 @@ export const TrafficScheduler = async () => {
 
             // If the average usage is above the threshold
             if (avgDeploymentClusterUsage < Config.metrics.lowerThreshold) {
+              if (cooldownManager.isInCooldown(deployment, namespace)) {
+                continue;
+              }
+
               // Get the replica pods of the deployment
 
               loggerOperation.info(
@@ -130,6 +136,7 @@ export const TrafficScheduler = async () => {
               );
 
               await downScaler.Execute(Config.metrics.type, Config.metrics.weights);
+              cooldownManager.recordScaling(deployment, namespace, 'down');
             }
           }
         }
@@ -152,7 +159,7 @@ export const TrafficScheduler = async () => {
 
             // If the average usage is above the threshold
             //TODO:: IF NODES THAT NOT EXCEED RESOURCES IF avgDeploymentClusterUsage < Config.metrics.upperThreshold AND AT LEAST ONE NODE IS DOWN THE 30% THE SCALE UP AGAIN
-            if (avgDeploymentClusterUsage > Config.metrics.upperThreshold) {
+            if (avgDeploymentClusterUsage > Config.metrics.upperThreshold && !cooldownManager.isInCooldown(deployment, namespace)) {
               // get pods usage or requested resources
               const podResources = getPodNodeResources(replicaPods[0]);
 
@@ -184,6 +191,7 @@ export const TrafficScheduler = async () => {
               );
 
               await upScaler.Execute(Config.metrics.type, Config.metrics.weights);
+              cooldownManager.recordScaling(deployment, namespace, 'up');
 
               continue;
             }
@@ -204,6 +212,60 @@ export const TrafficScheduler = async () => {
 
             await optiBalancer.Execute(optiBalancerInput);
           }
+        }
+
+        // Latency-triggered scale-up: catches saturation that doesn't show up as
+        // high CPU (e.g. connection/queue backpressure ahead of the CPU limit).
+        // Independent of the CPU classification above — skips deployments already
+        // scaled up via the CPU path this tick to avoid double-firing OptiScaler.
+        const alreadyScaledUp = new Set(Object.keys(loadDeployment.highLoadedDeployments));
+        const highLatencyOperation = logger.child({ operation: 'HighLatencyDeployments' });
+
+        for (const deployment of Object.keys(deploymentsWithResources)) {
+          if (alreadyScaledUp.has(deployment)) {
+            continue;
+          }
+
+          const responseTimeData = await promAdapter.getResponseTimeByNodeDeployment(deployment, namespace);
+          const maxP95 = responseTimeData?.length
+            ? Math.max(...responseTimeData.map((rt) => rt.responseTime))
+            : 0;
+
+          if (maxP95 <= Config.metrics.scaleLatencyThresholdMs) {
+            continue;
+          }
+
+          if (cooldownManager.isInCooldown(deployment, namespace)) {
+            continue;
+          }
+
+          const replicaPods = deploymentsWithResources[deployment];
+          const podResources = getPodNodeResources(replicaPods[0]);
+          const nodeMetrics = await k8sAdapter.getNodesWithSufficientResources(podResources);
+
+          if (nodeMetrics.length === 0) {
+            continue;
+          }
+
+          highLatencyOperation.info(
+            `Deployment "${deployment}" P95 latency ${maxP95}ms exceeds scaleLatencyThresholdMs (${Config.metrics.scaleLatencyThresholdMs}ms). Scaling up`
+          );
+
+          const latencyUpScaler = new OptiScaler(
+            ScaleAction.UP,
+            {
+              deployment,
+              namespace,
+              replicaPods,
+              nodeMetrics,
+              zonesNodes,
+              nodesLatency,
+            },
+            { prom: promAdapter, k8s: k8sAdapter, fileSystem }
+          );
+
+          await latencyUpScaler.Execute(Config.metrics.type, Config.metrics.weights);
+          cooldownManager.recordScaling(deployment, namespace, 'up');
         }
       } catch (err: unknown) {
         // Handle the error
