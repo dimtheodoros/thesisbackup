@@ -197,6 +197,7 @@ loadGenerator:
   users: "10"
   spawnRate: "1"
   checkFrontendInitContainer: true
+  affinity: {}
   resources:
     requests:
       cpu: 100m

@@ -66,6 +66,10 @@ spec:
       {{- end }}
       terminationGracePeriodSeconds: 5
       restartPolicy: Always
+      {{- if .Values.loadGenerator.affinity }}
+      affinity:
+        {{- toYaml .Values.loadGenerator.affinity | nindent 8 }}
+      {{- end }}
       {{- if .Values.securityContext.enable }}
       securityContext:
         fsGroup: 1000
