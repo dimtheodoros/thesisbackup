@@ -1,14 +1,3 @@
 global:
   region: eu-north
   clusterName: cluster-eu-north
-
-loadGenerator:
-  affinity:
-    nodeAffinity:
-      requiredDuringSchedulingIgnoredDuringExecution:
-        nodeSelectorTerms:
-        - matchExpressions:
-          - key: topology.kubernetes.io/zone
-            operator: NotIn
-            values:
-            - eu-north-1a
