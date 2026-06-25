@@ -661,7 +661,7 @@
             "type": "prometheus",
             "uid": "P9CDD8ADAB1E98039"
           },
-          "expr": "sum(rate(istio_requests_total{reporter=\"source\",destination_service_namespace=\"online-boutique\",destination_cluster=\"west\"}[1m])) / sum(rate(istio_requests_total{reporter=\"source\",destination_service_namespace=\"online-boutique\"}[1m])) * 100",
+          "expr": "sum(rate(istio_requests_total{reporter=\"source\",destination_service_namespace=\"online-boutique\",destination_cluster=\"eu-west\"}[1m])) / sum(rate(istio_requests_total{reporter=\"source\",destination_service_namespace=\"online-boutique\"}[1m])) * 100",
           "legendFormat": "North → West (north view)",
           "refId": "A"
         },
@@ -670,7 +670,7 @@
             "type": "prometheus",
             "uid": "P50121D0943B9AC9B"
           },
-          "expr": "sum(rate(istio_requests_total{reporter=\"destination\",destination_service_namespace=\"online-boutique\",source_cluster=\"north\"}[1m])) / sum(rate(istio_requests_total{reporter=\"destination\",destination_service_namespace=\"online-boutique\"}[1m])) * 100",
+          "expr": "sum(rate(istio_requests_total{reporter=\"destination\",destination_service_namespace=\"online-boutique\",source_cluster=\"eu-north\"}[1m])) / sum(rate(istio_requests_total{reporter=\"destination\",destination_service_namespace=\"online-boutique\"}[1m])) * 100",
           "legendFormat": "North → West (west view)",
           "refId": "B"
         }
@@ -710,7 +710,7 @@
       },
       "targets": [
         {
-          "expr": "sum by(destination_service_name)(rate(istio_requests_total{reporter=\"destination\",destination_service_namespace=\"online-boutique\",source_cluster=\"north\"}[1m]))",
+          "expr": "sum by(destination_service_name)(rate(istio_requests_total{reporter=\"destination\",destination_service_namespace=\"online-boutique\",source_cluster=\"eu-north\"}[1m]))",
           "legendFormat": "{{destination_service_name}}",
           "refId": "A"
         }
