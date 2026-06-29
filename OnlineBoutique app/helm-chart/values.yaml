@@ -197,6 +197,15 @@ loadGenerator:
   users: "10"
   spawnRate: "1"
   checkFrontendInitContainer: true
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+        - matchExpressions:
+          - key: topology.kubernetes.io/zone
+            operator: NotIn
+            values:
+            - eu-north-1a
   resources:
     requests:
       cpu: 100m
