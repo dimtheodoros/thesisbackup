@@ -121,17 +121,17 @@ collect_metrics_row() {
   ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
   west_rps=$(prom_query "$WEST_PROM_URL" \
-    'sum(rate(istio_requests_total{reporter="destination",destination_service_namespace="online-boutique",source_workload!~"prometheus.*",node=~".*eu-west-1.*"}[1m]))')
+    'sum(rate(istio_requests_total{reporter="destination",destination_service_namespace="online-boutique",source_workload!~"prometheus.*"}[1m]))')
   north_rps=$(prom_query "$NORTH_PROM_URL" \
     'sum(rate(istio_requests_total{reporter="destination",destination_service_namespace="online-boutique",source_workload!~"prometheus.*"}[1m]))')
 
   west_p99=$(prom_query "$WEST_PROM_URL" \
-    'histogram_quantile(0.99,sum by(le)(rate(istio_request_duration_milliseconds_bucket{reporter="destination",destination_service_namespace="online-boutique",source_workload!~"prometheus.*",node=~".*eu-west-1.*"}[1m])))')
+    'histogram_quantile(0.99,sum by(le)(rate(istio_request_duration_milliseconds_bucket{reporter="destination",destination_service_namespace="online-boutique",source_workload!~"prometheus.*"}[1m])))')
   north_p99=$(prom_query "$NORTH_PROM_URL" \
     'histogram_quantile(0.99,sum by(le)(rate(istio_request_duration_milliseconds_bucket{reporter="destination",destination_service_namespace="online-boutique",source_workload!~"prometheus.*"}[1m])))')
 
   west_err=$(prom_query "$WEST_PROM_URL" \
-    'sum(rate(istio_requests_total{reporter="destination",destination_service_namespace="online-boutique",response_code=~"5..",node=~".*eu-west-1.*"}[1m])) / sum(rate(istio_requests_total{reporter="destination",destination_service_namespace="online-boutique",node=~".*eu-west-1.*"}[1m]))')
+    'sum(rate(istio_requests_total{reporter="destination",destination_service_namespace="online-boutique",response_code=~"5.."}[1m])) / sum(rate(istio_requests_total{reporter="destination",destination_service_namespace="online-boutique"}[1m]))')
   north_err=$(prom_query "$NORTH_PROM_URL" \
     'sum(rate(istio_requests_total{reporter="destination",destination_service_namespace="online-boutique",response_code=~"5.."}[1m])) / sum(rate(istio_requests_total{reporter="destination",destination_service_namespace="online-boutique"}[1m]))')
 
