@@ -67,7 +67,7 @@
             "type": "prometheus",
             "uid": "P50121D0943B9AC9B"
           },
-          "expr": "sum(rate(istio_requests_total{reporter=\"destination\",destination_service_namespace=\"online-boutique\",source_workload!~\"prometheus.*\",node=~\".*eu-west-1.*\"}[1m]))",
+          "expr": "sum(rate(istio_requests_total{reporter=\"destination\",destination_service_namespace=\"online-boutique\",source_workload!~\"prometheus.*\"}[1m]))",
           "legendFormat": "West RPS",
           "refId": "A"
         },
@@ -151,7 +151,7 @@
             "type": "prometheus",
             "uid": "P50121D0943B9AC9B"
           },
-          "expr": "histogram_quantile(0.99,sum by(le)(rate(istio_request_duration_milliseconds_bucket{reporter=\"destination\",destination_service_namespace=\"online-boutique\",source_workload!~\"prometheus.*\",node=~\".*eu-west-1.*\"}[1m])))",
+          "expr": "histogram_quantile(0.99,sum by(le)(rate(istio_request_duration_milliseconds_bucket{reporter=\"destination\",destination_service_namespace=\"online-boutique\",source_workload!~\"prometheus.*\"}[1m])))",
           "legendFormat": "West P99",
           "refId": "A"
         },
@@ -236,7 +236,7 @@
             "type": "prometheus",
             "uid": "P50121D0943B9AC9B"
           },
-          "expr": "sum(rate(istio_requests_total{reporter=\"destination\",destination_service_namespace=\"online-boutique\",response_code=~\"5..\",node=~\".*eu-west-1.*\"}[1m])) / sum(rate(istio_requests_total{reporter=\"destination\",destination_service_namespace=\"online-boutique\",node=~\".*eu-west-1.*\"}[1m]))",
+          "expr": "sum(rate(istio_requests_total{reporter=\"destination\",destination_service_namespace=\"online-boutique\",response_code=~\"5..\"}[1m]))",
           "legendFormat": "West Errors",
           "refId": "A"
         },
@@ -576,7 +576,7 @@
             "type": "prometheus",
             "uid": "P50121D0943B9AC9B"
           },
-          "expr": "histogram_quantile(0.99,sum by(le)(rate(istio_request_duration_milliseconds_bucket{reporter=\"destination\",destination_workload=\"frontend\",destination_service_namespace=\"online-boutique\",source_workload!~\"prometheus.*\",node=~\".*eu-west-1.*\"}[1m])))",
+          "expr": "histogram_quantile(0.99,sum by(le)(rate(istio_request_duration_milliseconds_bucket{reporter=\"destination\",destination_workload=\"frontend\",destination_service_namespace=\"online-boutique\",source_workload!~\"prometheus.*\"}[1m])))",
           "legendFormat": "West Frontend P99",
           "refId": "A"
         },
