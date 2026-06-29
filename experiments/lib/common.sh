@@ -56,7 +56,7 @@ start_karmada_portforward() {
   KUBECONFIG="$WEST_KUBECONFIG" kubectl port-forward svc/karmada-apiserver \
     -n karmada-system 5443:5443 &>/dev/null &
   KARMADA_PF_PID=$!
-  sleep 3
+  sleep 8
   KUBECONFIG="$KARMADA_KUBECONFIG" kubectl config set-cluster karmada-apiserver \
     --server="https://127.0.0.1:5443" --insecure-skip-tls-verify=true 2>/dev/null
   KUBECONFIG="$KARMADA_KUBECONFIG" kubectl config unset \
@@ -264,7 +264,7 @@ apply_north_locust_shape() {
     | KUBECONFIG="$NORTH_KUBECONFIG" kubectl apply -f -
 
   log_info "Applying north OverridePolicy (custom locustfile + volume mount + pinned env)..."
-  KUBECONFIG="$KARMADA_KUBECONFIG" kubectl apply -f - <<EOF
+  KUBECONFIG="$KARMADA_KUBECONFIG" kubectl apply --validate=false -f - <<EOF
 apiVersion: policy.karmada.io/v1alpha1
 kind: OverridePolicy
 metadata:
