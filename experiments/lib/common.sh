@@ -97,12 +97,23 @@ resolve_north_prometheus() {
 
 # ── Prometheus querying ───────────────────────────────────────────────────────
 
+BOUTIQUE_SERVICES=(adservice cartservice checkoutservice currencyservice emailservice frontend paymentservice productcatalogservice recommendationservice shippingservice)
+
 prom_query() {
   local url="$1" query="$2"
   local encoded
   encoded=$(printf '%s' "$query" | jq -Rr @uri)
   curl -sf --max-time 10 "${url}/api/v1/query?query=${encoded}" \
     | jq -r '.data.result[0].value[1] // "NaN"' 2>/dev/null || echo "NaN"
+}
+
+# Returns tab-separated "label_value\tmetric_value" lines for a vector query.
+prom_query_labeled() {
+  local url="$1" query="$2" label="$3"
+  local encoded
+  encoded=$(printf '%s' "$query" | jq -Rr @uri)
+  curl -sf --max-time 15 "${url}/api/v1/query?query=${encoded}" \
+    | jq -r --arg lbl "$label" '.data.result[] | [.metric[$lbl], .value[1]] | @tsv' 2>/dev/null || true
 }
 
 # ── CSV metrics collection ────────────────────────────────────────────────────
@@ -195,6 +206,140 @@ collect_metrics_loop() {
   start_time=$(date +%s)
   while [ $(( $(date +%s) - start_time )) -lt "$duration" ]; do
     collect_metrics_row "$filepath" "$phase"
+    sleep "$SAMPLE_INTERVAL_SECONDS"
+  done
+}
+
+# ── Per-metric CSV collection (one file per metric, each with timestamp,phase,value) ──
+
+init_metric_csvs() {
+  local dir="$1"
+  mkdir -p "$dir"
+  local metric svc
+  for metric in west_rps north_rps \
+                west_p99_ms north_p99_ms \
+                west_frontend_p99_ms north_frontend_p99_ms \
+                west_5xx_rps west_error_rate north_error_rate \
+                spillover_pct_north_view spillover_pct_west_view \
+                west_loadgenerator_users north_loadgenerator_users \
+                west_mem_pct north_mem_pct \
+                west_restarts north_restarts; do
+    printf 'timestamp,phase,value\n' > "${dir}/${metric}.csv"
+  done
+  for svc in "${BOUTIQUE_SERVICES[@]}"; do
+    printf 'timestamp,phase,value\n' > "${dir}/west_${svc}_replicas.csv"
+    printf 'timestamp,phase,value\n' > "${dir}/north_${svc}_replicas.csv"
+    printf 'timestamp,phase,value\n' > "${dir}/spillover_rps_${svc}.csv"
+  done
+}
+
+collect_metrics_row_multi() {
+  local dir="$1" phase="$2"
+  local ts west_rps north_rps west_p99 north_p99 west_fe_p99 north_fe_p99 \
+        west_5xx_rps west_err north_err spillover_pct_nv spillover_pct_wv \
+        lg_users north_lg_users west_mem_pct north_mem_pct west_restarts north_restarts \
+        svc val
+  ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+  west_rps=$(prom_query "$WEST_PROM_URL" \
+    'sum(rate(istio_requests_total{reporter="destination",destination_service_namespace="online-boutique",source_workload!~"prometheus.*"}[1m]))')
+  north_rps=$(prom_query "$NORTH_PROM_URL" \
+    'sum(rate(istio_requests_total{reporter="destination",destination_service_namespace="online-boutique",source_workload!~"prometheus.*"}[1m]))')
+
+  west_p99=$(prom_query "$WEST_PROM_URL" \
+    'histogram_quantile(0.99,sum by(le)(rate(istio_request_duration_milliseconds_bucket{reporter="destination",destination_service_namespace="online-boutique",source_workload!~"prometheus.*"}[1m])))')
+  north_p99=$(prom_query "$NORTH_PROM_URL" \
+    'histogram_quantile(0.99,sum by(le)(rate(istio_request_duration_milliseconds_bucket{reporter="destination",destination_service_namespace="online-boutique",source_workload!~"prometheus.*"}[1m])))')
+
+  west_fe_p99=$(prom_query "$WEST_PROM_URL" \
+    'histogram_quantile(0.99,sum by(le)(rate(istio_request_duration_milliseconds_bucket{reporter="destination",destination_workload="frontend",destination_service_namespace="online-boutique",source_workload!~"prometheus.*"}[1m])))')
+  north_fe_p99=$(prom_query "$NORTH_PROM_URL" \
+    'histogram_quantile(0.99,sum by(le)(rate(istio_request_duration_milliseconds_bucket{reporter="destination",destination_workload="frontend",destination_service_namespace="online-boutique",source_workload!~"prometheus.*"}[1m])))')
+
+  west_5xx_rps=$(prom_query "$WEST_PROM_URL" \
+    'sum(rate(istio_requests_total{reporter="destination",destination_service_namespace="online-boutique",response_code=~"5.."}[1m]))')
+  west_err=$(prom_query "$WEST_PROM_URL" \
+    'sum(rate(istio_requests_total{reporter="destination",destination_service_namespace="online-boutique",response_code=~"5.."}[1m])) / sum(rate(istio_requests_total{reporter="destination",destination_service_namespace="online-boutique"}[1m]))')
+  north_err=$(prom_query "$NORTH_PROM_URL" \
+    'sum(rate(istio_requests_total{reporter="destination",destination_service_namespace="online-boutique",response_code=~"5.."}[1m])) / sum(rate(istio_requests_total{reporter="destination",destination_service_namespace="online-boutique"}[1m]))')
+
+  spillover_pct_nv=$(prom_query "$NORTH_PROM_URL" \
+    'sum(rate(istio_requests_total{reporter="source",destination_service_namespace="online-boutique",destination_cluster="eu-west"}[1m])) / sum(rate(istio_requests_total{reporter="source",destination_service_namespace="online-boutique"}[1m])) * 100')
+  spillover_pct_wv=$(prom_query "$WEST_PROM_URL" \
+    'sum(rate(istio_requests_total{reporter="destination",destination_service_namespace="online-boutique",source_cluster="eu-north"}[1m])) / sum(rate(istio_requests_total{reporter="destination",destination_service_namespace="online-boutique"}[1m])) * 100')
+
+  west_mem_pct=$(prom_query "$WEST_PROM_URL" \
+    '(1 - sum(node_memory_MemAvailable_bytes) / sum(node_memory_MemTotal_bytes)) * 100')
+  north_mem_pct=$(prom_query "$NORTH_PROM_URL" \
+    '(1 - sum(node_memory_MemAvailable_bytes) / sum(node_memory_MemTotal_bytes)) * 100')
+
+  west_restarts=$(prom_query "$WEST_PROM_URL" \
+    'sum(kube_pod_container_status_restarts_total{namespace="online-boutique"})')
+  north_restarts=$(prom_query "$NORTH_PROM_URL" \
+    'sum(kube_pod_container_status_restarts_total{namespace="online-boutique"})')
+
+  lg_users=$(KUBECONFIG="$WEST_KUBECONFIG" kubectl exec -n "$NAMESPACE" \
+    "$(KUBECONFIG="$WEST_KUBECONFIG" kubectl get pod -n "$NAMESPACE" -l app=loadgenerator \
+      --field-selector=status.phase=Running \
+      -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)" \
+    -- printenv USERS 2>/dev/null || echo "NaN")
+  north_lg_users=$(KUBECONFIG="$NORTH_KUBECONFIG" kubectl exec -n "$NAMESPACE" \
+    "$(KUBECONFIG="$NORTH_KUBECONFIG" kubectl get pod -n "$NAMESPACE" -l app=loadgenerator \
+      --field-selector=status.phase=Running \
+      -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)" \
+    -- printenv USERS 2>/dev/null || echo "NaN")
+
+  # Scalar metrics
+  printf '%s,%s,%s\n' "$ts" "$phase" "$west_rps"          >> "${dir}/west_rps.csv"
+  printf '%s,%s,%s\n' "$ts" "$phase" "$north_rps"         >> "${dir}/north_rps.csv"
+  printf '%s,%s,%s\n' "$ts" "$phase" "$west_p99"          >> "${dir}/west_p99_ms.csv"
+  printf '%s,%s,%s\n' "$ts" "$phase" "$north_p99"         >> "${dir}/north_p99_ms.csv"
+  printf '%s,%s,%s\n' "$ts" "$phase" "$west_fe_p99"       >> "${dir}/west_frontend_p99_ms.csv"
+  printf '%s,%s,%s\n' "$ts" "$phase" "$north_fe_p99"      >> "${dir}/north_frontend_p99_ms.csv"
+  printf '%s,%s,%s\n' "$ts" "$phase" "$west_5xx_rps"      >> "${dir}/west_5xx_rps.csv"
+  printf '%s,%s,%s\n' "$ts" "$phase" "$west_err"          >> "${dir}/west_error_rate.csv"
+  printf '%s,%s,%s\n' "$ts" "$phase" "$north_err"         >> "${dir}/north_error_rate.csv"
+  printf '%s,%s,%s\n' "$ts" "$phase" "$spillover_pct_nv"  >> "${dir}/spillover_pct_north_view.csv"
+  printf '%s,%s,%s\n' "$ts" "$phase" "$spillover_pct_wv"  >> "${dir}/spillover_pct_west_view.csv"
+  printf '%s,%s,%s\n' "$ts" "$phase" "$lg_users"          >> "${dir}/west_loadgenerator_users.csv"
+  printf '%s,%s,%s\n' "$ts" "$phase" "$north_lg_users"    >> "${dir}/north_loadgenerator_users.csv"
+  printf '%s,%s,%s\n' "$ts" "$phase" "$west_mem_pct"      >> "${dir}/west_mem_pct.csv"
+  printf '%s,%s,%s\n' "$ts" "$phase" "$north_mem_pct"     >> "${dir}/north_mem_pct.csv"
+  printf '%s,%s,%s\n' "$ts" "$phase" "$west_restarts"     >> "${dir}/west_restarts.csv"
+  printf '%s,%s,%s\n' "$ts" "$phase" "$north_restarts"    >> "${dir}/north_restarts.csv"
+
+  # Per-service replicas — single vector query per cluster
+  while IFS=$'\t' read -r svc val; do
+    [ -n "$svc" ] || continue
+    printf '%s,%s,%s\n' "$ts" "$phase" "$val" >> "${dir}/west_${svc}_replicas.csv"
+  done < <(prom_query_labeled "$WEST_PROM_URL" \
+    'kube_deployment_status_replicas_available{namespace="online-boutique",deployment!~"prometheus.*|grafana.*|redis.*|loadgenerator"}' \
+    "deployment")
+
+  while IFS=$'\t' read -r svc val; do
+    [ -n "$svc" ] || continue
+    printf '%s,%s,%s\n' "$ts" "$phase" "$val" >> "${dir}/north_${svc}_replicas.csv"
+  done < <(prom_query_labeled "$NORTH_PROM_URL" \
+    'kube_deployment_status_replicas_available{namespace="online-boutique",deployment!~"prometheus.*|grafana.*|redis.*|loadgenerator"}' \
+    "deployment")
+
+  # Spillover RPS by service — single vector query from west
+  while IFS=$'\t' read -r svc val; do
+    [ -n "$svc" ] || continue
+    printf '%s,%s,%s\n' "$ts" "$phase" "$val" >> "${dir}/spillover_rps_${svc}.csv"
+  done < <(prom_query_labeled "$WEST_PROM_URL" \
+    'sum by(destination_service_name)(rate(istio_requests_total{reporter="destination",destination_service_namespace="online-boutique",source_cluster="eu-north"}[1m]))' \
+    "destination_service_name")
+
+  log_info "  W-RPS=${west_rps} N-RPS=${north_rps} | W-P99=${west_p99}ms N-P99=${north_p99}ms | W-fe-P99=${west_fe_p99}ms N-fe-P99=${north_fe_p99}ms | W-5xx=${west_5xx_rps} N-err=${north_err} | spill-wv=${spillover_pct_wv}% | W-mem=${west_mem_pct}% N-mem=${north_mem_pct}% | N-rst=${north_restarts}"
+}
+
+collect_metrics_loop_multi() {
+  local dir="$1" phase="$2" duration="$3"
+  local start_time
+  start_time=$(date +%s)
+  while [ $(( $(date +%s) - start_time )) -lt "$duration" ]; do
+    collect_metrics_row_multi "$dir" "$phase"
     sleep "$SAMPLE_INTERVAL_SECONDS"
   done
 }

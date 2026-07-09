@@ -21,7 +21,7 @@ cd "$(cd "$(dirname "$0")/.." && pwd)"
 . experiments/lib/common.sh
 
 TIMESTAMP=$(date +%Y%m%d-%H%M%S)
-RESULT_FILE="experiments/results/scenario-5-north-organic-${TIMESTAMP}.csv"
+RESULT_DIR="experiments/results/scenario-5-north-organic-${TIMESTAMP}"
 FHPA_APPLIED=false
 SHAPE_APPLIED=false
 LOAD_CHANGED=false
@@ -41,7 +41,7 @@ cleanup() {
   fi
   stop_west_prometheus_portforward
   stop_karmada_portforward
-  log_info "Scenario 5 done. Results: $RESULT_FILE"
+  log_info "Scenario 5 done. Results: $RESULT_DIR/"
 }
 trap cleanup EXIT INT TERM
 
@@ -61,7 +61,7 @@ fi
 
 resolve_north_prometheus
 start_west_prometheus_portforward
-write_csv_header "$RESULT_FILE"
+init_metric_csvs "$RESULT_DIR"
 
 log_phase "SETUP" "Deploying north Locust LoadTestShape (shape clock starts at T=0)"
 apply_north_locust_shape; SHAPE_APPLIED=true
@@ -70,29 +70,29 @@ apply_north_locust_shape; SHAPE_APPLIED=true
 # the shape's stage boundaries (120s / 180s / 300s / 300s / 240s / 120s).
 
 log_phase "BASELINE" "2 min — north shape T=0–120s (10 users), west at 10 users"
-collect_metrics_loop "$RESULT_FILE" "baseline" 120
+collect_metrics_loop_multi "$RESULT_DIR" "baseline" 120
 
 set_west_load_users 100; LOAD_CHANGED=true
 # North shape transitions to 100 users at T=120s independently.
 log_phase "RAMP_SYMMETRIC" "3 min — north shape T≈120–300s (100 users), west=100"
-collect_metrics_loop "$RESULT_FILE" "ramp_symmetric" 180
+collect_metrics_loop_multi "$RESULT_DIR" "ramp_symmetric" 180
 
 # North shape transitions to 600 users at T=300s automatically.
 log_phase "NORTH_OVERLOAD" "5 min — north shape T≈300–600s (600 users, 6:1), west=100"
-collect_metrics_loop "$RESULT_FILE" "north_overload" 300
+collect_metrics_loop_multi "$RESULT_DIR" "north_overload" 300
 
 # North shape transitions to 1000 users at T=600s automatically.
 log_phase "NORTH_PEAK" "5 min — north shape T≈600–900s (1000 users, 10:1), expect 5xx + Istio failover"
-collect_metrics_loop "$RESULT_FILE" "north_peak" 300
+collect_metrics_loop_multi "$RESULT_DIR" "north_peak" 300
 
 # North shape transitions to 100 users at T=900s automatically.
 log_phase "RECOVERY" "4 min — north shape T≈900–1140s (100 users), Istio reinstates north endpoints"
-collect_metrics_loop "$RESULT_FILE" "recovery" 240
+collect_metrics_loop_multi "$RESULT_DIR" "recovery" 240
 
 set_west_load_users 10; LOAD_CHANGED=false
 # North shape transitions to 10 users at T=1140s automatically.
 log_phase "RAMP_DOWN" "2 min — north shape T≈1140–1260s (10 users), replicas scale back down"
-collect_metrics_loop "$RESULT_FILE" "ramp_down" 120
+collect_metrics_loop_multi "$RESULT_DIR" "ramp_down" 120
 
 log_info "Removing north shape OverridePolicy and ConfigMap..."
 remove_north_locust_shape; SHAPE_APPLIED=false
@@ -105,4 +105,4 @@ if [ "$FHPA_APPLIED" = "true" ]; then
 fi
 
 echo ""
-log_info "Scenario 5 complete. Results saved to: $RESULT_FILE"
+log_info "Scenario 5 complete. Results saved to: $RESULT_DIR/"

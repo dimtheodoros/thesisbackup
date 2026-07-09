@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/lib/common.sh"
 
 TIMESTAMP=$(date +%Y%m%d-%H%M%S)
-RESULT_FILE="${SCRIPT_DIR}/results/scenario-6-north-zone-failure-${TIMESTAMP}.csv"
+RESULT_DIR="${SCRIPT_DIR}/results/scenario-6-north-zone-failure-${TIMESTAMP}"
 TARGET_ZONE="eu-north-1a"
 DRAINED_NODE=""
 ZONE_DRAINED=false
@@ -17,7 +17,7 @@ cleanup() {
     set_load_users 10 2>/dev/null || true
   stop_west_prometheus_portforward
   stop_karmada_portforward
-  log_info "Results: ${RESULT_FILE}"
+  log_info "Results: ${RESULT_DIR}/"
 }
 trap cleanup EXIT INT TERM
 
@@ -33,13 +33,13 @@ log_info "Target node for zone drop: ${DRAINED_NODE} (${TARGET_ZONE})"
 
 resolve_north_prometheus
 start_west_prometheus_portforward
-write_csv_header "$RESULT_FILE"
+init_metric_csvs "$RESULT_DIR"
 
 # --- Phase 1: Baseline ---
 log_phase "baseline" "200 users symmetric, all zones healthy"
 set_load_users 200
 LOAD_CHANGED=true
-collect_metrics_loop "$RESULT_FILE" "baseline" 120
+collect_metrics_loop_multi "$RESULT_DIR" "baseline" 120
 
 # --- Zone Drop ---
 cordon_and_drain_north_node "$DRAINED_NODE"
@@ -47,7 +47,7 @@ ZONE_DRAINED=true
 
 # --- Phase 2: Zone Degraded ---
 log_phase "zone_degraded" "${TARGET_ZONE} drained — pod rescheduling + Istio failover"
-collect_metrics_loop "$RESULT_FILE" "zone_degraded" 300
+collect_metrics_loop_multi "$RESULT_DIR" "zone_degraded" 300
 
 # --- Zone Recovery ---
 uncordon_north_node "$DRAINED_NODE"
@@ -55,12 +55,12 @@ ZONE_DRAINED=false
 
 # --- Phase 3: Recovery ---
 log_phase "zone_recovery" "${TARGET_ZONE} restored — pods redistributing"
-collect_metrics_loop "$RESULT_FILE" "zone_recovery" 240
+collect_metrics_loop_multi "$RESULT_DIR" "zone_recovery" 240
 
 # --- Ramp Down ---
 set_load_users 10
 LOAD_CHANGED=false
 log_phase "ramp_down" "load reduction"
-collect_metrics_loop "$RESULT_FILE" "ramp_down" 60
+collect_metrics_loop_multi "$RESULT_DIR" "ramp_down" 60
 
-echo "Results: ${RESULT_FILE}"
+echo "Results: ${RESULT_DIR}/"
