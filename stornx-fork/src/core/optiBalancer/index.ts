@@ -41,6 +41,14 @@ export class OptiBalancer {
       responseTimeMs: rt.responseTime,
     }));
 
+    // Average CPU usage across all local replicas (0-100 scale) — used to
+    // compute how much traffic to pre-emptively shift to the remote cluster.
+    const avgCpuPct =
+      data.replicaPods.length > 0
+        ? (data.replicaPods.reduce((sum, p) => sum + p.percentUsage.cpu, 0) / data.replicaPods.length) * 100
+        : 0;
+    const remoteWeight = this.engine.computeRemoteWeight(avgCpuPct);
+
     // --- Compute target distribution (delegated to TrafficEngine) ---
     // Now includes response time as a primary factor for weight calculation
     const targetList: DistributedPercentTraffic[] = this.engine.calculateTraffic(
@@ -54,38 +62,14 @@ export class OptiBalancer {
 
     // ---- READ current DR from cluster
     const group = 'networking.istio.io';
-    const version = 'v1beta1'; // match your CRD version
+    const version = 'v1beta1';
     const plural = 'destinationrules';
 
     const current = await this.k8s.readCustomResource(group, version, data.namespace, plural, serviceName);
 
-    // Region-level failover mode: the locality setting is a static 2-entry
-    // failover list, not a computed weighted distribution, so the
-    // distribute-diffing/stepping pipeline below doesn't apply. Patch once,
-    // then skip on every subsequent run where the live DR already matches
-    // (avoids re-patching every cron tick for content that never changes).
-    if (Config.FAILOVER_REGION) {
-      const dr = OptiBalancerMapper.toDestinationRule(targetList, data.namespace, serviceName, data.clusterTopology);
-      const currentFailover = current?.spec?.trafficPolicy?.loadBalancer?.localityLbSetting?.failover;
-      const targetFailover = dr.spec.trafficPolicy.loadBalancer.localityLbSetting.failover ?? [];
-      const sortByFrom = (a: { from: string }, b: { from: string }) => a.from.localeCompare(b.from);
-      const matches =
-        Array.isArray(currentFailover) &&
-        JSON.stringify([...currentFailover].sort(sortByFrom)) === JSON.stringify([...targetFailover].sort(sortByFrom));
-      if (matches) {
-        this.loggerOperation.info(`Failover locality already set, skipping patch`, {
-          deployment: data.deployment,
-          namespace: data.namespace,
-        });
-        return;
-      }
-      await this.applyTrafficRules(dr);
-      return;
-    }
-
     // if DR doesn't exist yet, apply target directly
     if (!current) {
-      const dr = OptiBalancerMapper.toDestinationRule(targetList, data.namespace, serviceName, data.clusterTopology);
+      const dr = OptiBalancerMapper.toDestinationRule(targetList, data.namespace, serviceName, data.clusterTopology, remoteWeight);
       await this.applyTrafficRules(dr);
       return;
     }
@@ -129,7 +113,8 @@ export class OptiBalancer {
       nextList,
       data.namespace,
       serviceName,
-      data.clusterTopology
+      data.clusterTopology,
+      remoteWeight
     );
 
     // console.log(JSON.stringify(createDestinationRule, null, 2));

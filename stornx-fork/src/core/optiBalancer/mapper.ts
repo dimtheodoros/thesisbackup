@@ -21,12 +21,12 @@ export const OptiBalancerMapper = {
     trafficRules: DistributedPercentTraffic[],
     namespace: string,
     svc: string,
-    clusterTopology: ClusterTopology[]
+    clusterTopology: ClusterTopology[],
+    remoteWeight: number = 0
   ): DestinationRule => {
     const trafficRulesTopology = trafficRules
       .map((tr) => {
         const nodeFrom = clusterTopology.find((ct) => ct.node === tr.from);
-
         const nodeTo = clusterTopology.find((ct) => ct.node === tr.to);
 
         if (!nodeFrom || !nodeTo) {
@@ -50,31 +50,28 @@ export const OptiBalancerMapper = {
       groupedTraffic[from][to] = percentage;
     });
 
-    const distributeRules = Object.entries(groupedTraffic).map(([from, toMap]) => ({
-      from,
-      to: normalizeTo100(toMap),
-    }));
+    // Build distribute rules. When remote zones are configured, scale local
+    // weights down to (100 - remoteWeight)% and distribute the remainder
+    // evenly across remote zones. This keeps remote endpoints warm at baseline
+    // and increases cross-cluster traffic proportionally as local load grows.
+    // Outlier detection can then spill to any listed locality (including remote)
+    // when local endpoints are ejected — avoiding the binary all-or-nothing
+    // shift of the old failover mode.
+    const remoteZones = Config.REMOTE_ZONES;
+    const hasRemote = remoteZones.length > 0 && remoteWeight > 0;
+    const localScale = hasRemote ? (100 - remoteWeight) / 100 : 1;
+    const weightPerRemoteZone = hasRemote ? remoteWeight / remoteZones.length : 0;
 
-    // Istio: only one of distribute, failover, or failoverPriority may be set
-    // on a single localityLbSetting. distribute is a closed weighted map
-    // (localities absent from it get zero traffic permanently, even under
-    // outlierDetection ejection); it can't express cross-cluster failover
-    // because clusterTopology only ever contains this cluster's own nodes.
-    // failover is the open, priority-based mode that actually falls back to
-    // the remote region once outlierDetection ejects local endpoints.
-    const localRegion = clusterTopology[0]?.region ?? '';
-    const localityLbSetting = Config.FAILOVER_REGION
-      ? {
-          enabled: true,
-          failover: [
-            { from: localRegion, to: Config.FAILOVER_REGION },
-            { from: Config.FAILOVER_REGION, to: localRegion },
-          ],
-        }
-      : {
-          enabled: true,
-          distribute: distributeRules,
-        };
+    const distributeRules = Object.entries(groupedTraffic).map(([from, toMap]) => {
+      const scaled: Record<string, number> = {};
+      for (const [to, pct] of Object.entries(toMap)) {
+        scaled[to] = pct * localScale;
+      }
+      for (const remoteZone of remoteZones) {
+        scaled[remoteZone] = (scaled[remoteZone] ?? 0) + weightPerRemoteZone;
+      }
+      return { from, to: normalizeTo100(scaled) };
+    });
 
     return {
       apiVersion: 'networking.istio.io/v1beta1',
@@ -92,7 +89,10 @@ export const OptiBalancerMapper = {
               duration: '2m',
               minimumPercent: 2.0,
             },
-            localityLbSetting,
+            localityLbSetting: {
+              enabled: true,
+              distribute: distributeRules,
+            },
           },
           outlierDetection: {
             consecutive5xxErrors: 5,

@@ -34,10 +34,19 @@ config:
 extraEnv:
   - name: DATA_PATH
     value: "/opt/data"
-  # Remote cluster's region — enables localityLbSetting.failover instead of
-  # distribute, so Istio actually fails over to eu-west on outlier ejection.
-  - name: FAILOVER_REGION
-    value: "eu-west-1"
+  # Hybrid distribute mode: include eu-west zones in the distribute map so
+  # Istio routes a baseline % cross-cluster and can spill more as local CPU
+  # climbs. Outlier detection handles real-time ejection within this map.
+  - name: REMOTE_ZONES
+    value: "eu-west-1/eu-west-1a/*,eu-west-1/eu-west-1b/*,eu-west-1/eu-west-1c/*"
+  - name: REMOTE_BASELINE_WEIGHT
+    value: "5"
+  - name: SPILLOVER_THRESHOLD
+    value: "50"
+  - name: SPILLOVER_SCALE
+    value: "0.5"
+  - name: MAX_REMOTE_WEIGHT
+    value: "40"
 
 persistence:
   enabled: true

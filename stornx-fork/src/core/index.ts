@@ -142,6 +142,7 @@ export const TrafficScheduler = async () => {
         }
 
         // If there are deployments that are above the threshold
+        const optiBalancerExecuted = new Set<string>();
         if (Object.keys(loadDeployment.highLoadedDeployments).length > 0) {
           for (const [deployment, node] of Object.entries(loadDeployment.highLoadedDeployments)) {
             const loggerOperation = logger.child({ operation: 'HighLoadDeployments' });
@@ -201,16 +202,8 @@ export const TrafficScheduler = async () => {
                 \n##############################################################################`
             );
 
-            const optiBalancerInput = {
-              deployment,
-              deployMetrics: deploymentsWithResources,
-              namespace,
-              replicaPods,
-              nodesLatency,
-              clusterTopology,
-            };
-
-            await optiBalancer.Execute(optiBalancerInput);
+            await optiBalancer.Execute({ deployment, namespace, replicaPods, nodesLatency, clusterTopology });
+            optiBalancerExecuted.add(deployment);
           }
         }
 
@@ -266,6 +259,17 @@ export const TrafficScheduler = async () => {
 
           await latencyUpScaler.Execute(Config.metrics.type, Config.metrics.weights);
           cooldownManager.recordScaling(deployment, namespace, 'up');
+        }
+
+        // Always-on distribute: keep DR weights current for every multi-replica
+        // service, not just stressed ones. The minDelta gate inside OptiBalancer
+        // prevents redundant patches when weights haven't shifted meaningfully.
+        for (const [deployment, replicaPods] of Object.entries(deploymentsWithResources)) {
+          if (alreadyScaledUp.has(deployment)) continue;
+          if (optiBalancerExecuted.has(deployment)) continue;
+          if (replicaPods.length <= 1) continue;
+
+          await optiBalancer.Execute({ deployment, namespace, replicaPods, nodesLatency, clusterTopology });
         }
       } catch (err: unknown) {
         // Handle the error

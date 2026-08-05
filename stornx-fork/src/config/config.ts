@@ -48,11 +48,25 @@ export const Config = {
     },
   },
   prometheusUrl: process.env.PROMETHEUS_URL ?? 'http://prometheus.prometheus.svc.cluster.local:9090',
-  /** Remote cluster's region name. When set, OptiBalancer emits a region-level
-   * localityLbSetting.failover instead of node-level distribute, so Istio can
-   * fail over to the remote cluster on outlier ejection. Empty = disabled
-   * (original distribute-only behavior). */
-  FAILOVER_REGION: process.env.FAILOVER_REGION ?? '',
+  /** Locality strings for the remote cluster's zones, comma-separated.
+   * When set, OptiBalancer includes these localities in the distribute map so
+   * Istio can route to and fail over to the remote cluster.
+   * Format: "region/zone/*,region/zone/*"
+   * Example: "eu-west-1/eu-west-1a/*,eu-west-1/eu-west-1b/*,eu-west-1/eu-west-1c/*"
+   * Empty = no cross-cluster traffic (pure local distribute). */
+  REMOTE_ZONES: process.env.REMOTE_ZONES
+    ? process.env.REMOTE_ZONES.split(',').map((z) => z.trim()).filter(Boolean)
+    : [],
+  remoteSpillover: {
+    /** Minimum % of traffic always sent to the remote cluster to keep its endpoints warm. */
+    baselineWeight: process.env.REMOTE_BASELINE_WEIGHT ? Number(process.env.REMOTE_BASELINE_WEIGHT) : 5,
+    /** Local avg CPU % (of limit) above which remote weight starts growing beyond baseline. */
+    spilloverThreshold: process.env.SPILLOVER_THRESHOLD ? Number(process.env.SPILLOVER_THRESHOLD) : 50,
+    /** Additional remote weight % gained per 1% of local CPU above spilloverThreshold. */
+    spilloverScale: process.env.SPILLOVER_SCALE ? Number(process.env.SPILLOVER_SCALE) : 0.5,
+    /** Hard cap on total remote weight %. Local zones always receive at least (100 - maxRemoteWeight)%. */
+    maxRemoteWeight: process.env.MAX_REMOTE_WEIGHT ? Number(process.env.MAX_REMOTE_WEIGHT) : 40,
+  },
   // OptiBalancer settings
   balancer: {
     /** Minimum L1 distance delta to trigger a DestinationRule update (lowered from 10 to 5) */

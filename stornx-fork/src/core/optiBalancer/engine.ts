@@ -190,6 +190,20 @@ export class TrafficEngine {
     return sum;
   }
 
+  /**
+   * Compute how much traffic (0-100%) to send to the remote cluster this tick.
+   * Starts at baselineWeight to keep remote endpoints warm, then grows linearly
+   * as local avg CPU rises above spilloverThreshold.
+   *
+   * @param avgCpuPct - Average CPU usage across all local replicas, as a percentage (0-100)
+   */
+  public computeRemoteWeight(avgCpuPct: number): number {
+    if (Config.REMOTE_ZONES.length === 0) return 0;
+    const { baselineWeight, spilloverThreshold, spilloverScale, maxRemoteWeight } = Config.remoteSpillover;
+    const spillover = Math.max(0, avgCpuPct - spilloverThreshold) * spilloverScale;
+    return Math.min(maxRemoteWeight, baselineWeight + spillover);
+  }
+
   // ---------- PRIVATE helpers ----------
 
   private groupPodsByNode(rs: PodMetrics[]) {
